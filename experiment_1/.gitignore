@@ -36,3 +36,4 @@ kaggle.json
 data/triviaqa-unfiltered/
 output/
 code/wandb/
+checkpoints/

@@ -129,9 +129,15 @@ def aggregate_metrics_across_seeds(metrics_per_seed):
 
 
 def init_and_train_classifier(seed, X_train, y_train):
+    # Check for the number of unique classes in the training data
+    if len(np.unique(y_train)) < 2:
+        print(f"Warning: Training data for seed {seed} has only one class. Cannot train classifier.")
+        # Return None as the classifier cannot be trained
+        return None
+
+    # If we have at least 2 classes, proceed with training
     clf = LogisticRegression(random_state=seed).fit(X_train, y_train)
     return clf
-
 
 def get_saved_clf_if_exists(args):
     if not exists("../checkpoints"):
