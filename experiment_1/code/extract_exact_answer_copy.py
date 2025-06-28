@@ -179,7 +179,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    BATCH_SIZE = 16
+    BATCH_SIZE = 4
 
     extraction_model, tokenizer = load_model_and_validate_gpu(args.extraction_model)
     source_file = f"../output/{MODEL_FRIENDLY_NAMES[args.model]}-answers-{args.dataset}.csv"
