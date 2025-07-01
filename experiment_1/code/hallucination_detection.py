@@ -41,9 +41,10 @@ with open(PKL_FILE_PATH, 'rb') as f:
 import torch
 import numpy as np
 
-# --- Step 2: Prepare Your New TriviaQA-style Questions ---
-print("Extracting hidden representations for TriviaQA-style data...")
+import torch
+import numpy as np
 
+# --- Step 1: TriviaQA-style Prompts and Ground Truths ---
 questions_list = [
     "What is the capital of France?",
     "Who painted the Mona Lisa?",
@@ -57,32 +58,49 @@ questions_list = [
     "What is the square root of 144?"
 ]
 
-answers_list = [
-    "The capital of France is Paris.",
-    "The Mona Lisa was painted by Leonardo da Vinci.",
-    "The smallest planet in our solar system is Mercury.",
-    "The chemical symbol 'O' stands for Oxygen.",
-    "World War II ended in 1945.",
-    "Penicillin was discovered by Alexander Fleming.",
-    "The tallest mountain in the world is Mount Everest.",
-    "The Great Pyramid of Giza is located in Egypt.",
-    "Pride and Prejudice was written by Jane Austen.",
-    "The square root of 144 is 12."
+true_answers_list = [
+    "Paris",
+    "Leonardo da Vinci",
+    "Mercury",
+    "Oxygen",
+    "1945",
+    "Alexander Fleming",
+    "Mount Everest",
+    "Egypt",
+    "Jane Austen",
+    "12"
 ]
 
-# --- Step 3: Extract Internal Representations ---
+# --- Step 2: Generate Model Answers ---
+print("Generating model answers using Gemma...")
+model_answers_list = []
+
+for question in questions_list:
+    input_ids = tokenizer(question, return_tensors="pt").input_ids.to(model.device)
+
+    with torch.no_grad():
+        output_ids = model.generate(
+            input_ids=input_ids,
+            max_new_tokens=50,
+            do_sample=False
+        )
+
+    output_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    generated_answer = output_text.replace(question, "").strip()
+    model_answers_list.append(generated_answer)
+
+# --- Step 3: Tokenize for Probing ---
 input_output_ids = []
 
-for question, answer in zip(questions_list, answers_list):
+for question, answer in zip(questions_list, model_answers_list):
     q_ids = tokenizer([question], return_tensors='pt').input_ids[0]
     a_ids = tokenizer([answer], return_tensors='pt').input_ids[0]
     combined_ids = torch.cat((q_ids, a_ids[1:]), dim=0)
     input_output_ids.append(combined_ids)
 
-# Dummy labels (for compatibility)
 dummy_labels = [1] * len(questions_list)
 
-# Extract hidden representations
+# --- Step 4: Extract Hidden States ---
 hidden_vectors = extract_internal_reps_specific_layer_and_token(
     model,
     tokenizer,
@@ -92,23 +110,21 @@ hidden_vectors = extract_internal_reps_specific_layer_and_token(
     MODEL_NAME,
     PROBE_LAYER,
     PROBE_TOKEN,
-    answers_list,
+    model_answers_list,
     dummy_labels
 )
 
 X_new = np.array(hidden_vectors)
 
-# --- Step 4: Make Predictions ---
-print("\n--- Inference Results ---")
+# --- Step 5: Run the Probe ---
 predicted_classes = probe_clf.predict(X_new)
 probabilities = probe_clf.predict_proba(X_new)
 
+# --- Step 6: Display Results ---
+print("\n--- Inference Results ---")
 for i in range(len(questions_list)):
-    print(f"\nQ: {questions_list[i]}")
-    print(f"A: {answers_list[i]}")
-    print(f"Predicted Class: {predicted_classes[i]}")
-    print(f"Confidence in correctness: {probabilities[i][1]:.2%}")
-    if predicted_classes[i] == 1:
-        print("Conclusion: The probe believes the answer is likely NOT a hallucination.")
-    else:
-        print("Conclusion: The probe believes the answer is likely a hallucination.")
+    print(f"\nQ{i+1}: {questions_list[i]}")
+    print(f"✅ Correct Answer: {true_answers_list[i]}")
+    print(f"🧠 Model's Answer: {model_answers_list[i]}")
+    print(f"🔍 Probe Prediction: {'NOT a hallucination' if predicted_classes[i] == 1 else 'HALLUCINATION'}")
+    print(f"📊 Confidence in correctness: {probabilities[i][1]:.2%}")
