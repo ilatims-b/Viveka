@@ -39,8 +39,8 @@ with open(PKL_FILE_PATH, 'rb') as f:
     probe_clf = pickle.load(f)
 
 # --- Step 2: Prepare Your New Data (Unchanged) ---
-new_question = "What is 5 + 2?"
-new_model_answer = "The answer is 7."
+new_question = "What is the capital of France?"
+new_model_answer = "The Capital of France is Paris."
 
 # --- Step 3: Extract the Internal Representation ---
 print("Extracting hidden representation for the new data point...")
