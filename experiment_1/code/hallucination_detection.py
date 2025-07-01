@@ -6,23 +6,30 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 # You will need these utility functions from your project
 from probing_utils import extract_internal_reps_specific_layer_and_token, load_model_and_validate_gpu
 
-# --- Step 1: Define Parameters and Load Models ---
+import argparse
 
-MODEL_NAME = 'google/gemma-2-2b-it'
-pkl_path = input('enter pkl path:')
-PKL_FILE_PATH = f"../checkpoints/{pkl_path}"
-PROBE_LAYER = 24
-probe_token = input('enter probe token:')
-PROBE_TOKEN = f"{probe_token}"
+# --- Step 1: Parse Arguments ---
+parser = argparse.ArgumentParser(description="Run probing experiment for Gemma-2B")
 
-# --- CORRECTED PARAMETER ---
-# This value MUST be one of the keys from the LAYERS_TO_TRACE dictionary you provided.
-# 'attention_output' is a common and likely choice. If you trained with a different
-# --probe_at argument (e.g., 'mlp'), change this value to match.
-probe_at = input('where should we probe at:')
-PROBE_AT = f'{probe_at}'
-# --- END OF CORRECTION ---
+parser.add_argument('--pkl_path', type=str, required=True,
+                    help='Relative path to the .pkl file under ../checkpoints/')
+parser.add_argument('--probe_token', type=str, required=True,
+                    help='Token to probe in the input sequence')
+parser.add_argument('--probe_at', type=str, required=True,
+                    help='Component to probe at (e.g., attention_output, mlp, etc.)')
+parser.add_argument('--probe_layer', type=int, default=24,
+                    help='Layer to probe at (default: 24)')
+parser.add_argument('--model_name', type=str, default='google/gemma-2-2b-it',
+                    help='Name or path of the Hugging Face model (default: google/gemma-2-2b-it)')
 
+args = parser.parse_args()
+
+# --- Step 2: Assign Parameters ---
+MODEL_NAME = args.model_name
+PKL_FILE_PATH = f"../checkpoints/{args.pkl_path}"
+PROBE_LAYER = args.probe_layer
+PROBE_TOKEN = args.probe_token
+PROBE_AT = args.probe_at
 
 print("Loading the base language model (e.g., Gemma)...")
 model, tokenizer = load_model_and_validate_gpu(MODEL_NAME)
