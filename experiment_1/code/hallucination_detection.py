@@ -9,15 +9,18 @@ from probing_utils import extract_internal_reps_specific_layer_and_token, load_m
 # --- Step 1: Define Parameters and Load Models ---
 
 MODEL_NAME = 'google/gemma-2-2b-it'
-PKL_FILE_PATH = "../checkpoints/clf_gemma-2-2b-instruct_math_layer-24_token-second_answer_token.pkl"
+pkl_path = input('enter pkl path:')
+PKL_FILE_PATH = f"../checkpoints/{pkl_path}"
 PROBE_LAYER = 24
-PROBE_TOKEN = "second_answer_token"
+probe_token = input('enter probe token:')
+PROBE_TOKEN = f"{probe_token}"
 
 # --- CORRECTED PARAMETER ---
 # This value MUST be one of the keys from the LAYERS_TO_TRACE dictionary you provided.
 # 'attention_output' is a common and likely choice. If you trained with a different
 # --probe_at argument (e.g., 'mlp'), change this value to match.
-PROBE_AT = 'mlp_last_layer_only'
+probe_at = input('where should we probe at:')
+PROBE_AT = f'{probe_at}'
 # --- END OF CORRECTION ---
 
 
