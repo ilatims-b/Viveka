@@ -167,7 +167,7 @@ def load_data_triviaqa(test=False, legacy=False):
         with open(file_path,'r', encoding='utf-8') as f:
             data = json.load(f)
             data = data['Data']
-        data, _ = train_test_split(data, args.train_size, random_state=42)
+        data, _ = train_test_split(data, train_size = args.train_size, random_state=42)
         return [ex['Question'] for ex in data], [ex['Answer']['Aliases'] for ex in data]
 
 def load_data_math(test=False):
