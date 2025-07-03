@@ -172,11 +172,114 @@ def parse_args():
     wandb.init(project="extract_exact_answer", config=vars(args))
     return args
 
+# def main():
+#     args = parse_args()
+#     BATCH_SIZE = 4
+
+#     extraction_model, tokenizer = load_model_and_validate_gpu(args.extraction_model)
+#     source_file = f"../output/{MODEL_FRIENDLY_NAMES[args.model]}-answers-{args.dataset}.csv"
+#     model_answers_df = pd.read_csv(source_file)
+#     print(f"Length of data: {len(model_answers_df)}")
+
+#     if args.n_samples > 0:
+#         stratify_col = 'automatic_correctness' if 'automatic_correctness' in model_answers_df.columns else None
+#         model_answers_df = resample(model_answers_df, n_samples=args.n_samples, stratify=model_answers_df[stratify_col] if stratify_col else None)
+#         model_answers_df = model_answers_df.reset_index(drop=True)
+#         print(f"Subsampled to {len(model_answers_df)} samples.")
+
+#     question_col = 'raw_question' if 'raw_question' in model_answers_df.columns else 'question'
+
+#     if args.do_resampling <= 0:
+#         # --- OPTIMIZED BATCH PATH ---
+#         simple_tasks, complex_tasks = [], []
+#         print("Segregating tasks...")
+#         for idx, row in model_answers_df.iterrows():
+#             task = {'original_index': idx, 'question': row[question_col], 'model_answer': row['model_answer'] if 'instruct' in args.model.lower() else str(row['model_answer']).split("\n")[0], 'correct_answer': row['correct_answer']}
+#             is_correct = row.get('automatic_correctness', 0) if not (('natural_questions' in source_file) or args.get_extraction_stats) else 0
+#             if is_correct == 1: simple_tasks.append(task)
+#             else: complex_tasks.append(task)
+        
+#         results = [None] * len(model_answers_df)
+#         print(f"Processing {len(simple_tasks)} simple tasks...")
+#         for task in tqdm(simple_tasks, desc="Simple Tasks"):
+#             results[task['original_index']] = _find_exact_answer_simple(task['model_answer'], task['correct_answer'])
+
+#         print(f"Processing {len(complex_tasks)} complex tasks in batches...")
+#         if complex_tasks:
+#             prompts = [_create_extraction_prompt(t['question'], t['model_answer']) for t in complex_tasks]
+#             for i in tqdm(range(0, len(prompts), BATCH_SIZE), desc="Complex Batches"):
+#                 batch_tasks = complex_tasks[i:i + BATCH_SIZE]
+#                 inputs = tokenizer(prompts[i:i+BATCH_SIZE], return_tensors="pt", padding=True, truncation=True).to(extraction_model.device)
+#                 with torch.no_grad():
+#                     outputs = extraction_model.generate(**inputs, max_new_tokens=25, pad_token_id=tokenizer.eos_token_id)
+#                 decoded_outputs = tokenizer.batch_decode(outputs, skip_special_tokens=False)
+#                 for j, decoded in enumerate(decoded_outputs):
+#                     task = batch_tasks[j]
+#                     exact_answer = _cleanup_batched_answer(decoded, args.extraction_model)
+#                     valid = 1 if (exact_answer == "NO ANSWER" or (exact_answer and exact_answer.lower() in str(task['model_answer']).lower())) else 0
+#                     results[task['original_index']] = (exact_answer, valid)
+        
+#         exact_answers = [res[0] for res in results]
+#         valid_lst = [res[1] for res in results]
+#         total_n_answers = len(model_answers_df)
+#     else:
+#         # --- UNOPTIMIZED RESAMPLING PATH (SEQUENTIAL) ---
+#         resampling_file = f"../output/resampling/{MODEL_FRIENDLY_NAMES[args.model]}_{args.dataset}_{args.do_resampling}_textual_answers.pt"
+#         all_resample_answers = torch.load(resampling_file)
+#         print("Resampling path is complex and will run sequentially (unoptimized).")
+        
+#         exact_answers, valid_lst = [], []
+#         for idx, row in tqdm(model_answers_df.iterrows(), total=len(model_answers_df), desc="Resampling Samples"):
+#             exact_answers_specific, valid_lst_specific = [], []
+#             for resample_answers in all_resample_answers:
+#                 resample_answer = resample_answers[idx].split("\n")[0]
+#                 automatic_correctness = compute_correctness([row[question_col]], args.dataset, args.model, [row['correct_answer']], extraction_model, [resample_answer], tokenizer, None)['correctness'][0]
+                
+#                 exact_answer, valid = extract_exact_answer(extraction_model, tokenizer, automatic_correctness, row[question_col], resample_answer, row['correct_answer'], args.extraction_model)
+#                 exact_answers_specific.append(exact_answer)
+#                 valid_lst_specific.append(valid)
+#             exact_answers.append(exact_answers_specific)
+#             valid_lst.append(valid_lst_specific)
+#         total_n_answers = len(model_answers_df) * len(all_resample_answers)
+
+#     # --- Finalization and Saving (Unchanged) ---
+#     print("Finalizing results and saving...")
+#     flat_valid = [item for sublist in valid_lst for item in (sublist if isinstance(sublist, list) else [sublist])]
+#     flat_answers = [item for sublist in exact_answers for item in (sublist if isinstance(sublist, list) else [sublist])]
+#     ctr = sum(flat_valid)
+#     ctr_no_answer = flat_answers.count('NO ANSWER')
+
+#     wandb.summary['successful_extractions'] = ctr / total_n_answers if total_n_answers > 0 else 0
+#     wandb.summary['no_answer'] = ctr_no_answer / total_n_answers if total_n_answers > 0 else 0
+
+#     if not args.get_extraction_stats:
+#         if args.do_resampling <= 0:
+#             destination_file = f"../output/{MODEL_FRIENDLY_NAMES[args.model]}-answers-{args.dataset}.csv"
+#             model_answers_df['exact_answer'] = exact_answers
+#             model_answers_df['valid_exact_answer'] = valid_lst
+#             model_answers_df.to_csv(destination_file, index=False)
+#         else:
+#             destination_file = f"../output/resampling/{MODEL_FRIENDLY_NAMES[args.model]}_{args.dataset}_{args.do_resampling}_exact_answers.pt"
+#             torch.save({"exact_answer": exact_answers, "valid_exact_answer": valid_lst}, destination_file)
+#         print(f"Results saved to {destination_file}")
+#     else:
+#         print("Extraction stats mode is on. No file saved.")
+
 def main():
     args = parse_args()
     BATCH_SIZE = 4
 
     extraction_model, tokenizer = load_model_and_validate_gpu(args.extraction_model)
+
+    # =====================================================================
+    # FIX: Set the padding token for the tokenizer.
+    # This is necessary for batch processing when the model's tokenizer
+    # (like Gemma or Mistral) doesn't have a default padding token.
+    # Using the end-of-sentence token is a standard practice.
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    # =====================================================================
+
     source_file = f"../output/{MODEL_FRIENDLY_NAMES[args.model]}-answers-{args.dataset}.csv"
     model_answers_df = pd.read_csv(source_file)
     print(f"Length of data: {len(model_answers_df)}")
@@ -209,8 +312,10 @@ def main():
             prompts = [_create_extraction_prompt(t['question'], t['model_answer']) for t in complex_tasks]
             for i in tqdm(range(0, len(prompts), BATCH_SIZE), desc="Complex Batches"):
                 batch_tasks = complex_tasks[i:i + BATCH_SIZE]
-                inputs = tokenizer(prompts[i:i+BATCH_SIZE], return_tensors="pt", padding=True, truncation=True).to(extraction_model.device)
+                # The line below will now work correctly
+                inputs = tokenizer(prompts[i:i+BATCH_SIZE], return_tensors="pt", padding=True, truncation=True, max_length=512).to(extraction_model.device)
                 with torch.no_grad():
+                    # Set pad_token_id for the generation step to avoid warnings
                     outputs = extraction_model.generate(**inputs, max_new_tokens=25, pad_token_id=tokenizer.eos_token_id)
                 decoded_outputs = tokenizer.batch_decode(outputs, skip_special_tokens=False)
                 for j, decoded in enumerate(decoded_outputs):
