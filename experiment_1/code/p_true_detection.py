@@ -7,7 +7,7 @@ import torch
 import wandb
 from sklearn.utils import resample
 
-from detection_by_logprob import metric_fn
+from logprob_detection import metric_fn
 from probing_utils import LIST_OF_MODELS, LIST_OF_DATASETS, load_model_and_validate_gpu, compute_metrics_probing
 from generate_model_answers import generate_model_answers, MODEL_FRIENDLY_NAMES
 

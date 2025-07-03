@@ -7,15 +7,10 @@ from sklearn.utils import resample
 import numpy as np
 import wandb
 
-# Assuming these utils are in the path and work as before
 sys.path.append("../src")
 from compute_correctness import compute_correctness_triviaqa, compute_correctness_math, compute_correctness
 from probing_utils import load_model_and_validate_gpu, tokenize, generate, LIST_OF_MODELS, MODEL_FRIENDLY_NAMES, \
     LIST_OF_TEST_DATASETS, LIST_OF_DATASETS
-
-# =================================================================================
-# ORIGINAL EXTRACT_EXACT_ANSWER FUNCTION (RESTORED)
-# =================================================================================
 
 def extract_exact_answer(model, tokenizer, correctness, question, model_answer, correct_answer, model_name):
     """The original, sequential extraction function. Used as a fallback for the complex resampling path."""

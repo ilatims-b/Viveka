@@ -126,7 +126,6 @@ def extract_exact_answer(model, tokenizer, correctness, question, model_answer, 
     return exact_answer, valid
 
 
-
 def main():
     args = parse_args()
     model, tokenizer = load_model_and_validate_gpu(args.extraction_model)
