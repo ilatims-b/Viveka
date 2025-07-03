@@ -25,10 +25,12 @@ def parse_args():
                         choices=LIST_OF_DATASETS)
     parser.add_argument("--verbose", action='store_true', help='print more information')
     parser.add_argument("--n_samples", type=int, help='number of examples to use', default=None)
+    parser.add_argument("--train_size", type=int,help='train size of datasets',default=2000)
 
 
     return parser.parse_args()
 
+args = parse_args()
 
 def load_data_movies(test=False):
     file_name = 'movie_qa'
@@ -165,7 +167,7 @@ def load_data_triviaqa(test=False, legacy=False):
         with open(file_path,'r', encoding='utf-8') as f:
             data = json.load(f)
             data = data['Data']
-        data, _ = train_test_split(data, train_size=900, random_state=42)
+        data, _ = train_test_split(data, args.train_size, random_state=42)
         return [ex['Question'] for ex in data], [ex['Answer']['Aliases'] for ex in data]
 
 def load_data_math(test=False):
