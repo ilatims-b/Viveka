@@ -316,78 +316,78 @@ def extract_internal_reps_all_layers_and_tokens(model, input_output_ids_lst, pro
 
     return all_outputs_per_layer
 
-import google.generativeai as genai
+# import google.generativeai as genai
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 import os
 
-def load_model_and_validate_gpu(model_path, tokenizer_path=None):
-    """
-    Loads a language model and its tokenizer.
-
-    This function automatically loads the 'gemini-2.5-flash-lite' model from the Gemini API.
-    For any other model_path, it loads a local Hugging Face model.
-
-    Args:
-        model_path (str): The identifier for the model.
-                          - If "gemini-2.5-flash-lite", it loads the Gemini model.
-                          - Otherwise, it's treated as a path to a local Hugging Face model.
-        tokenizer_path (str, optional): The path to the tokenizer for local models.
-                                        If None, it's assumed to be the same as the model_path.
-                                        This is ignored for the Gemini model. Defaults to None.
-
-    Returns:
-        tuple: A tuple containing the loaded model and tokenizer (or None for Gemini).
-    """
-    if model_path == "gemini-2.5-flash":
-        print(f"Loading Gemini model: {model_path}")
-        try:
-
-            api_key = os.getenv("GEMINI_API_KEY")
-            if not api_key:
-                raise ValueError("GEMINI_API_KEY environment variable not set.")
-            genai.configure(api_key=api_key)
-
-            # Initialize the generative model
-            model = genai.GenerativeModel(model_path)
-            print("Gemini model loaded successfully. ✨")
-
-            return model, None
-        except Exception as e:
-            print(f"Failed to load Gemini model: {e}")
-            return None, None
-    else:
-        # This block contains the original functionality for local models
-        print(f"Loading local model from: {model_path}")
-        if tokenizer_path is None:
-            tokenizer_path = model_path
-        try:
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-            print("Started loading local model")
-            model = AutoModelForCausalLM.from_pretrained(
-                model_path,
-                device_map='auto',
-                torch_dtype=torch.bfloat16,
-                low_cpu_mem_usage=True
-            )
-            # Ensure the model is loaded on a GPU
-            assert ('cpu' not in model.hf_device_map.values()), "Model loaded on CPU; GPU validation failed."
-            print("Local model loaded successfully onto GPU. ✅")
-            return model, tokenizer
-        except Exception as e:
-            print(f"Failed to load local model: {e}")
-            return None, None
-
-
 # def load_model_and_validate_gpu(model_path, tokenizer_path=None):
-#     if tokenizer_path is None:
-#         tokenizer_path = model_path
-#     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-#     print("Started loading model")
-#     model = AutoModelForCausalLM.from_pretrained(model_path, device_map='auto',
-#                                                  torch_dtype=torch.bfloat16, low_cpu_mem_usage=True)
-#     assert ('cpu' not in model.hf_device_map.values())
-#     return model, tokenizer
+#     """
+#     Loads a language model and its tokenizer.
+
+#     This function automatically loads the 'gemini-2.5-flash-lite' model from the Gemini API.
+#     For any other model_path, it loads a local Hugging Face model.
+
+#     Args:
+#         model_path (str): The identifier for the model.
+#                           - If "gemini-2.5-flash-lite", it loads the Gemini model.
+#                           - Otherwise, it's treated as a path to a local Hugging Face model.
+#         tokenizer_path (str, optional): The path to the tokenizer for local models.
+#                                         If None, it's assumed to be the same as the model_path.
+#                                         This is ignored for the Gemini model. Defaults to None.
+
+#     Returns:
+#         tuple: A tuple containing the loaded model and tokenizer (or None for Gemini).
+#     """
+#     if model_path == "gemini-2.5-flash":
+#         print(f"Loading Gemini model: {model_path}")
+#         try:
+
+#             api_key = os.getenv("GEMINI_API_KEY")
+#             if not api_key:
+#                 raise ValueError("GEMINI_API_KEY environment variable not set.")
+#             genai.configure(api_key=api_key)
+
+#             # Initialize the generative model
+#             model = genai.GenerativeModel(model_path)
+#             print("Gemini model loaded successfully. ✨")
+
+#             return model, None
+#         except Exception as e:
+#             print(f"Failed to load Gemini model: {e}")
+#             return None, None
+#     else:
+#         # This block contains the original functionality for local models
+#         print(f"Loading local model from: {model_path}")
+#         if tokenizer_path is None:
+#             tokenizer_path = model_path
+#         try:
+#             tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+#             print("Started loading local model")
+#             model = AutoModelForCausalLM.from_pretrained(
+#                 model_path,
+#                 device_map='auto',
+#                 torch_dtype=torch.bfloat16,
+#                 low_cpu_mem_usage=True
+#             )
+#             # Ensure the model is loaded on a GPU
+#             assert ('cpu' not in model.hf_device_map.values()), "Model loaded on CPU; GPU validation failed."
+#             print("Local model loaded successfully onto GPU. ✅")
+#             return model, tokenizer
+#         except Exception as e:
+#             print(f"Failed to load local model: {e}")
+#             return None, None
+
+
+def load_model_and_validate_gpu(model_path, tokenizer_path=None):
+    if tokenizer_path is None:
+        tokenizer_path = model_path
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    print("Started loading model")
+    model = AutoModelForCausalLM.from_pretrained(model_path, device_map='auto',
+                                                 torch_dtype=torch.bfloat16, low_cpu_mem_usage=True)
+    assert ('cpu' not in model.hf_device_map.values())
+    return model, tokenizer
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
