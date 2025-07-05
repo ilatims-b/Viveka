@@ -142,7 +142,7 @@ def aggregate_metrics_across_seeds(metrics_per_seed):
 from sklearn.dummy import DummyClassifier
 
 def init_and_train_classifier(seed, X_train, y_train):
-    if len(np.unique(y_train)) < 2:
+    if len(np.unique(y_train)) == 1:
         print(f"Warning: Training data for seed {seed} has only one class. Using DummyClassifier.")
         # Return a classifier that predicts the majority class
         dummy_clf = DummyClassifier(strategy="most_frequent")
