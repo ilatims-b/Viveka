@@ -49,7 +49,8 @@ LAYERS_TO_TRACE = {
     'mistralai/Mistral-7B-v0.3': LAYERS_TO_TRACE_MISTRAL,
     'meta-llama/Meta-Llama-3-8B-Instruct': LAYERS_TO_TRACE_LLAMA,
     'meta-llama/Meta-Llama-3-8B': LAYERS_TO_TRACE_LLAMA,
-    "google/gemma-2-2b-it" : LAYERS_TO_TRACE_GEMMA_2
+    "google/gemma-2-2b-it" : LAYERS_TO_TRACE_GEMMA_2,
+    "google/gemma-2-2b" : LAYERS_TO_TRACE_GEMMA_2,
 }
 
 N_LAYERS = {
@@ -57,7 +58,8 @@ N_LAYERS = {
     'mistralai/Mistral-7B-v0.3': N_LAYERS_MISTRAL,
     'meta-llama/Meta-Llama-3-8B-Instruct': N_LAYER_LLAMA,
     'meta-llama/Meta-Llama-3-8B': N_LAYER_LLAMA,
-    "google/gemma-2-2b-it" : N_LAYER_GEMMA_2
+    "google/gemma-2-2b-it" : N_LAYER_GEMMA_2,
+    'google/gemma-2-2b' : N_LAYER_GEMMA_2,
 }
 
 HIDDEN_SIZE = {
@@ -69,6 +71,7 @@ HIDDEN_SIZE = {
     'google/gemma-7b': 3072,
     'google/gemma-7b-it': 3072,
     'google/gemma-2-2b-it' : 2304,
+    'google/gemma-2-2b' : 2304,
 }
 
 LIST_OF_DATASETS = ['triviaqa',
@@ -89,7 +92,8 @@ LIST_OF_MODELS = ['mistralai/Mistral-7B-Instruct-v0.2',
                                             'meta-llama/Meta-Llama-3-8B',
                                             'meta-llama/Meta-Llama-3-8B-Instruct',
                                             "google/gemma-2-2b-it",
-                                            "gemini-2.5-flash"
+                                            "gemini-2.5-flash",
+                                            "google/gemma-3-4b-it",
                                             ]
 
 MODEL_FRIENDLY_NAMES = {
@@ -97,7 +101,8 @@ MODEL_FRIENDLY_NAMES = {
     'mistralai/Mistral-7B-v0.3': 'mistral-7b',
     'meta-llama/Meta-Llama-3-8B': 'llama-3-8b',
     'meta-llama/Meta-Llama-3-8B-Instruct': 'llama-3-8b-instruct',
-    'google/gemma-2-2b-it' : 'gemma-2-2b-instruct'
+    'google/gemma-2-2b-it' : 'gemma-2-2b-instruct',
+    'google/gemma-2-2b' : 'gemma-2-2b',
 }
 
 LIST_OF_PROBING_LOCATIONS = ['mlp', 'mlp_last_layer_only', 'mlp_last_layer_only_input', 'attention_output']
