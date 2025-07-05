@@ -94,6 +94,7 @@ LIST_OF_MODELS = ['mistralai/Mistral-7B-Instruct-v0.2',
                                             "google/gemma-2-2b-it",
                                             "gemini-2.5-flash",
                                             "google/gemma-3-4b-it",
+                                            "google/gemma-2-2b",
                                             ]
 
 MODEL_FRIENDLY_NAMES = {
