@@ -468,29 +468,49 @@ def probe_specific_layer_token(extracted_embeddings_train, extracted_embeddings_
     return compute_metrics_probing(clf, X_valid, y_valid, pos_label=0)
 
 
+# def compile_probing_indices(data, n_samples, seed, n_validation_samples=0):
+#     # n_samples = eval(n_samples)
+#     indices = np.arange(len(data))
+
+#     if n_validation_samples > 0:
+#         n_validation_samples = min(n_validation_samples, round(0.2 * (len(indices))))
+#         indices, validation_data_indices = train_test_split(indices, test_size=n_validation_samples, random_state=seed)
+
+#     if n_samples != 'all' and type(n_samples) == int:
+#         np.random.shuffle(indices)
+#         indices = indices[:n_samples]  # should be consistent across runs same seed
+
+#     if n_validation_samples > 0:
+#         training_data_indices = indices
+#     else:
+#         training_data_indices, validation_data_indices = train_test_split(indices, test_size=0.2, random_state=seed)
+
+#     if 'exact_answer' in data:
+#         training_data_indices = training_data_indices[(data.iloc[training_data_indices]['valid_exact_answer'] == 1) & (data.iloc[training_data_indices]['exact_answer'] != 'NO ANSWER') & (data.iloc[training_data_indices]['exact_answer'].map(lambda x : type(x)) == str)]
+#         validation_data_indices = validation_data_indices[(data.iloc[validation_data_indices]['valid_exact_answer'] == 1) & (data.iloc[validation_data_indices]['exact_answer'] != 'NO ANSWER') & (data.iloc[validation_data_indices]['exact_answer'].map(lambda x : type(x)) == str)]
+
+#     return training_data_indices, validation_data_indices
+
 def compile_probing_indices(data, n_samples, seed, n_validation_samples=0):
-    # n_samples = eval(n_samples)
     indices = np.arange(len(data))
 
     if n_validation_samples > 0:
         n_validation_samples = min(n_validation_samples, round(0.2 * (len(indices))))
         indices, validation_data_indices = train_test_split(indices, test_size=n_validation_samples, random_state=seed)
 
-    if n_samples != 'all' and type(n_samples) == int:
+    if n_samples != 'all' and isinstance(n_samples, int):
         np.random.shuffle(indices)
         indices = indices[:n_samples]  # should be consistent across runs same seed
 
     if n_validation_samples > 0:
         training_data_indices = indices
     else:
+        # This initial split will now be the final set of indices
         training_data_indices, validation_data_indices = train_test_split(indices, test_size=0.2, random_state=seed)
 
-    if 'exact_answer' in data:
-        training_data_indices = training_data_indices[(data.iloc[training_data_indices]['valid_exact_answer'] == 1) & (data.iloc[training_data_indices]['exact_answer'] != 'NO ANSWER') & (data.iloc[training_data_indices]['exact_answer'].map(lambda x : type(x)) == str)]
-        validation_data_indices = validation_data_indices[(data.iloc[validation_data_indices]['valid_exact_answer'] == 1) & (data.iloc[validation_data_indices]['exact_answer'] != 'NO ANSWER') & (data.iloc[validation_data_indices]['exact_answer'].map(lambda x : type(x)) == str)]
-
+    # The entire 'if "exact_answer" in data:' block that was here has been removed.
+    
     return training_data_indices, validation_data_indices
-
 
 def get_probing_layer_names(probe_at, model_name):
     if probe_at in ['mlp_last_layer_only', 'mlp_last_layer_only_input']:
