@@ -469,7 +469,7 @@ def probe_specific_layer_token(extracted_embeddings_train, extracted_embeddings_
 
 
 def compile_probing_indices(data, n_samples, seed, n_validation_samples=0):
-    n_samples = eval(n_samples)
+    # n_samples = eval(n_samples)
     indices = np.arange(len(data))
 
     if n_validation_samples > 0:
