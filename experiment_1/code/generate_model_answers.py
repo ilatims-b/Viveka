@@ -542,9 +542,9 @@ def main():
     print("Saving input output ids to ", file_path_output_ids)
     torch.save(input_output_ids, file_path_output_ids)
 
-    print("Saving input output ids to ", file_path_scores)
-    torch.save({"all_scores": all_scores,
-                "all_output_ids": all_output_ids}, file_path_scores)
+    # print("Saving input output ids to ", file_path_scores)
+    # torch.save({"all_scores": all_scores,
+                # "all_output_ids": all_output_ids}, file_path_scores)
 
 if __name__ == "__main__":
     main()
