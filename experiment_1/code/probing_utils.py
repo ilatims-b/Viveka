@@ -217,6 +217,25 @@ def get_token_index(token, tokenizer, question, model_name, full_answer_tokenize
     return t
 
 
+# def get_embeddings_in_token(token, layer, extracted_embeddings, tokenizer, prompts, model_name,
+#                             full_answers_tokenized=None, exact_answers=None, valid_exact_answers=None,
+#                             use_dict=True):
+#     X = []
+#     for idx in range(len(prompts)):
+
+#         if (full_answers_tokenized is not None) and (exact_answers is not None) and (valid_exact_answers is not None):
+#             t = get_token_index(token, tokenizer, prompts[idx], model_name, full_answers_tokenized[idx],
+#                                 exact_answers[idx], valid_exact_answers[idx], use_dict=use_dict)
+#         else:
+#             t = get_token_index(token, tokenizer, prompts[idx], model_name, use_dict=use_dict)
+
+#         if layer == 'all':
+#             X.append(extracted_embeddings[idx][:, t].float().numpy())
+#         else:
+#             X.append(extracted_embeddings[idx][layer][t].float().numpy())
+#     return X
+
+
 def get_embeddings_in_token(token, layer, extracted_embeddings, tokenizer, prompts, model_name,
                             full_answers_tokenized=None, exact_answers=None, valid_exact_answers=None,
                             use_dict=True):
@@ -229,12 +248,15 @@ def get_embeddings_in_token(token, layer, extracted_embeddings, tokenizer, promp
         else:
             t = get_token_index(token, tokenizer, prompts[idx], model_name, use_dict=use_dict)
 
+        # ✅ ADD THIS LINE TO PREVENT THE INDEX ERROR
+        # It clamps the index 't' to the last valid index of the sequence.
+        t = min(t, extracted_embeddings[idx][layer].shape[0] - 1)
+
         if layer == 'all':
             X.append(extracted_embeddings[idx][:, t].float().numpy())
         else:
             X.append(extracted_embeddings[idx][layer][t].float().numpy())
     return X
-
 
 def extract_internal_reps_single_sample(model, model_input, probe_at, model_name):
 
