@@ -151,7 +151,7 @@ def _create_extraction_prompt(raw_question, model_answer):
 
         Exact answer: Albert Einstein
 
-        (Although the answer here is factually wrong, the EXACT ANSWER is the most relevant to the search query.)
+        (Although the answer here is factually wrong, the EXACT ANSWER is the answer in field A: which is most relevant to the search query.)
 
         Now it's your turn. You have been provided with a question (Q) and an answer (A). **If the A field is empty**, or the long answer does not answer the question, output NO ANSWER. Else, figure out the most relevant token to the question which seem to answer the question. Disregard any sense of factual correctness for this exercise. 
 
