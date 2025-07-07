@@ -124,7 +124,7 @@ def _find_exact_answer_simple(model_answer, correct_answer):
     else:
         return "", 1
 
-def _create_extraction_prompt(question, model_answer):
+def _create_extraction_prompt(raw_question, model_answer):
     """Creates the standard f-string prompt for the LLM extractor."""
     return f"""
         Extract from the following long answer the short answer, only the relevant tokens. If the long answer does not answer the question, output NO ANSWER.
@@ -155,7 +155,7 @@ def _create_extraction_prompt(question, model_answer):
 
         Now it's your turn. You have been provided with a question (Q) and an answer (A). **If the A field is empty**, or the long answer does not answer the question, output NO ANSWER. Else, figure out the most relevant token to the question which seem to answer the question. Disregard any sense of factual correctness for this exercise. 
 
-        Q: {question}
+        Q: {raw_question}
 
         A: {model_answer}
 
