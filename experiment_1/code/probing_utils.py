@@ -301,13 +301,11 @@ def get_mlp_output(ret, layers_to_trace, probe_at):
 def get_attention_output(model, ret, layers_to_trace, probe_at):
     attention_output_per_layer = []
     for k in layers_to_trace:
-        heads_per_token = ret[k].output.reshape(ret[k].input.shape[0],
-                                                ret[k].input.shape[1],
-                                                model.model.layers[0].self_attn.num_heads,
-                                                model.model.layers[0].self_attn.head_dim).transpose(1, 2)
+        # This is the line that was removed
+        # heads_per_token = ret[k].output.reshape(...) 
+        
         attention_output = ret[k].output.squeeze().cpu()
         attention_output_per_layer.append(attention_output)
-
 
     return attention_output_per_layer
 
