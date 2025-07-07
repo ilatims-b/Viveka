@@ -127,19 +127,39 @@ def _find_exact_answer_simple(model_answer, correct_answer):
 def _create_extraction_prompt(question, model_answer):
     """Creates the standard f-string prompt for the LLM extractor."""
     return f"""
-    Extract from the following long answer the short answer, only the relevant tokens. If the long answer does not answer the question, output NO ANSWER.
+        Extract from the following long answer the short answer, only the relevant tokens. If the long answer does not answer the question, output NO ANSWER.
 
-    Q: Which musical featured the song The Street Where You Live?
-    A: The song "The Street Where You Live" is from the Lerner and Loewe musical "My Fair Lady." It is one of the most famous songs from the show, and it is sung by Professor Henry Higgins as he reflects on the transformation of Eliza Doolittle and the memories they have shared together.
-    Exact answer: My Fair Lady
+        Below are some examples to help you understand the task: 
 
-    Q: Which Swedish actress won the Best Supporting Actress Oscar for Murder on the Orient Express?
-    A: I'm glad you asked about a Swedish actress who won an Oscar for "Murder on the Orient Express," but I must clarify that there seems to be a misunderstanding here. No Swedish actress has won an Oscar for Best Supporting Actress for that film. The 1974 "Murder on the Orient Express" was an American production, and the cast was predominantly British and American. If you have any other questions or if there's another
-    Exact answer: NO ANSWER
+        Q: Which musical featured the song The Street Where You Live?
 
-    Q: {question}
-    A: {model_answer}
-    Exact answer:
+        A: The song "The Street Where You Live" is from the Lerner and Loewe musical "My Fair Lady." It is one of the most famous songs from the show, and it is sung by Professor Henry Higgins as he reflects on the transformation of Eliza Doolittle and the memories they have shared together.
+
+        Exact answer: My Fair Lady
+
+
+        Q: Which Swedish actress won the Best Supporting Actress Oscar for Murder on the Orient Express?
+
+        A: I'm glad you asked about a Swedish actress who won an Oscar for "Murder on the Orient Express," but I must clarify that there seems to be a misunderstanding here. No Swedish actress has won an Oscar for Best Supporting Actress for that film. The 1974 "Murder on the Orient Express" was an American production, and the cast was predominantly British and American. If you have any other questions or if there's another
+
+        Exact answer: NO ANSWER
+
+
+        Q: Who wrote Philosophiæ Naturalis Principia Mathematica?
+
+        A: Albert Einstein 
+
+        Exact answer: Albert Einstein
+
+        (Although the answer here is factually wrong, the EXACT ANSWER is the most relevant to the search query.)
+
+        Now it's your turn. You have been provided with a question (Q) and an answer (A). **If the A field is empty**, or the long answer does not answer the question, output NO ANSWER. Else, figure out the most relevant token to the question which seem to answer the question. Disregard any sense of factual correctness for this exercise. 
+
+        Q: {question}
+
+        A: {model_answer}
+
+        Exact answer: [YOU have to output the EXACT answer]
     """
 
 def _cleanup_batched_answer(decoded_output, model_name):
