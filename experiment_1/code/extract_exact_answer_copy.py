@@ -159,7 +159,7 @@ def _create_extraction_prompt(raw_question, model_answer):
 
         A: {model_answer}
 
-        Exact answer: [YOU have to output the EXACT answer]
+        Exact answer:
     """
 
 def _cleanup_batched_answer(decoded_output, model_name):
