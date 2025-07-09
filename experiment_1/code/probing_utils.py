@@ -473,6 +473,7 @@ def compute_metrics_probing(clf, X_valid, y_valid, pos_label=0, predicted_probas
     return {"acc_diff_from_baseline": acc_diff_from_baseline, "f1": f1, "precision": precision, "recall": recall,
             "auc": auc, "baseline_acc": baseline_acc, "acc": acc}
 
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 
 def probe_specific_layer_token(extracted_embeddings_train, extracted_embeddings_valid, layer, token, questions_train,
                                questions_valid, full_answer_tokenized_train, full_answer_tokenized_valid,
@@ -489,7 +490,8 @@ def probe_specific_layer_token(extracted_embeddings_train, extracted_embeddings_
                                       validity_exact_answer_valid,
                                       use_dict=use_dict_for_tokens)
 
-    clf = LogisticRegression(random_state=seed).fit(X_train, y_train)
+    # clf = LogisticRegression(random_state=seed).fit(X_train, y_train)
+    clf = LinearDiscriminantAnalysis().fit(X_train, y_train)
 
     return compute_metrics_probing(clf, X_valid, y_valid, pos_label=0)
 
