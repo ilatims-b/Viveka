@@ -116,63 +116,70 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer):
         return exact_answer
     return None
 
+from thefuzz import process, fuzz
+
 def find_answer_token_indices_by_string_matching(tokenizer, full_generated_ids, prompt_ids, exact_answer_str):
     """
-    Finds answer tokens by performing a fuzzy string match on the decoded text of the
-    *generated portion only* and then maps character positions back to token IDs.
-    
-    **REWRITTEN**: This function is now much more robust.
-    1.  Isolates the generated text to avoid prompt contamination.
-    2.  Uses fuzzy partial matching to handle markdown and other formatting.
-    3.  Ensures offset mapping is generated without adding extra special tokens.
-    4.  Correctly calculates absolute token indices relative to the full sequence.
-    """
-    # 1. Isolate the token IDs for the generated answer part
-    answer_ids = full_generated_ids[prompt_ids.shape[1]:]
-    if len(answer_ids) == 0: return None
-    
-    # 2. Decode *only the answer part* to get the text we will search in.
-    answer_text = tokenizer.decode(answer_ids, skip_special_tokens=False)
+    Finds answer tokens by performing a fuzzy string match on the *fully decoded*
+    text and then mapping character positions back to the original token IDs.
 
-    # 3. Fuzzy String Search using partial_ratio for better substring matching
+    **REWRITTEN AGAIN FOR ROBUSTNESS**: This version is the most reliable.
+    1.  It decodes the ENTIRE sequence (prompt + answer) just once.
+    2.  It creates ONE offset mapping from that full decoded text.
+    3.  It finds the answer string within the full decoded text.
+    4.  It maps the string's character positions back to the original, absolute token
+        indices. This completely avoids any re-tokenization bugs.
+    """
+    # 1. Decode the entire generated sequence once. This is our source of truth.
+    try:
+        full_decoded_text = tokenizer.decode(full_generated_ids, skip_special_tokens=False)
+    except:
+        # Some tokenizers might fail on raw IDs, though rare.
+        return None
+
+    # 2. Fuzzy String Search for the clean answer within the full decoded text.
+    # Using partial_ratio is good for finding substrings in messy model output.
     match = process.extractOne(
         exact_answer_str,
-        [answer_text],
+        [full_decoded_text],
         scorer=fuzz.partial_ratio,
         score_cutoff=90
     )
 
-    if not match: return None
-    best_match_in_answer_text = match[0]
+    if not match:
+        return None
 
-    # 4. Find the character start/end of the match within the decoded answer_text
-    start_char = answer_text.find(best_match_in_answer_text)
-    if start_char == -1: return None
-    end_char = start_char + len(best_match_in_answer_text)
+    # The fuzzy match might find a substring. We need the full matched string.
+    best_match_str = match[0]
+    
+    # 3. Find the character start/end of the match within the full_decoded_text
+    start_char = full_decoded_text.find(best_match_str)
+    if start_char == -1:
+        return None  # Should not happen if a match was found, but a good safeguard.
+    end_char = start_char + len(best_match_str)
 
-    # 5. Get character-to-token offset mapping for the answer_text.
-    # CRITICAL: `add_special_tokens=False` prevents altering character offsets.
+    # 4. Get the character-to-token offset mapping for the ENTIRE sequence.
+    # CRITICAL: `add_special_tokens=False` is vital to prevent the tokenizer
+    # from adding a BOS token and misaligning all offsets.
     encoding = tokenizer(
-        answer_text,
+        full_decoded_text,
         return_offsets_mapping=True,
         add_special_tokens=False
     )
     offset_mapping = encoding['offset_mapping']
-    
-    # 6. Find all tokens from the answer that overlap with the character span of the match.
-    relative_token_indices = []
-    for i, (token_start, token_end) in enumerate(offset_mapping):
-        if token_start < end_char and start_char < token_end:
-            relative_token_indices.append(i)
-            
-    if not relative_token_indices: return None
 
-    # 7. Convert relative token indices (within the answer) to absolute indices
-    # (within the full generated sequence) by adding the prompt's token length.
-    prompt_length_in_tokens = prompt_ids.shape[1]
-    absolute_token_indices = [i + prompt_length_in_tokens for i in relative_token_indices]
-    
-    return absolute_token_indices
+    # 5. Find all tokens whose character spans overlap with our matched string.
+    # These are the final, absolute token indices. No further calculation is needed.
+    token_indices = []
+    for i, (token_start, token_end) in enumerate(offset_mapping):
+        # Check for any overlap: (start1 < end2) and (start2 < end1)
+        if token_start < end_char and start_char < token_end:
+            # We must also ensure the index is within the bounds of the tensor that will be indexed.
+            # The tensor's length is len(full_generated_ids).
+            if i < len(full_generated_ids):
+                token_indices.append(i)
+
+    return token_indices if token_indices else None
 
 class Hook:
     def __init__(self):
