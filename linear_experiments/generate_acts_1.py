@@ -143,9 +143,10 @@ def load_statements(dataset_name):
     path = f"datasets/{dataset_name}.csv"
     df = pd.read_csv(path)
     question_col = 'statement' if 'statement' in df.columns else 'raw_question'
-    if question_col not in df.columns or 'correct_answer' not in df.columns:
-        raise ValueError(f"Dataset {dataset_name}.csv must have a question and a 'correct_answer' column.")
-    return df[question_col].tolist(), df['correct_answer'].tolist()
+    label_col = 'label' if 'label' in df.columns else 'correct_answer'
+    if question_col not in df.columns or label_col not in df.columns:
+        raise ValueError(f"Dataset {dataset_name}.csv must have a question and a answer column.")
+    return df[question_col].tolist(), df[label_col].tolist()
 
 
 # **MODIFIED FUNCTION SIGNATURE**
@@ -183,14 +184,14 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
 
         if not exact_answer_str:
             # Silently continue to avoid cluttering the output. Can be uncommented for debugging.
-            # print(f"\nWarning: Could not find/extract answer for: '{stmt[:60]}...'")
+            print(f"\nWarning: Could not find/extract answer for: '{stmt[:60]}...'")
             continue
 
         exact_answer_ids = tokenizer.encode(exact_answer_str, add_special_tokens=False, return_tensors='pt').to(device)[0]
         answer_token_indices = find_answer_token_indices(generated_ids, exact_answer_ids)
 
         if answer_token_indices is None:
-            # print(f"\nWarning: Could not align tokens for answer '{exact_answer_str}'")
+            print(f"\nWarning: Could not align tokens for answer '{exact_answer_str}'")
             continue
 
         with t.no_grad():
