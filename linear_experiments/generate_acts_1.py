@@ -207,7 +207,7 @@ def load_statements(dataset_name):
 def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indices, device, enable_llm_extraction=False):
     """
     Attaches hooks and gets activations for exact answers using a robust,
-    string-matching-based extraction process.
+    string-matching-based extraction process with built-in debugging.
     """
     attn_hooks, mlp_hooks = {}, {}
     handles = []
@@ -235,11 +235,16 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
 
         if not exact_answer_str and enable_llm_extraction:
             exact_answer_str = extract_answer_with_llm(stmt, model_answer_text, model, tokenizer)
-
+        
+        # Check if the answer string was found
         if not exact_answer_str:
+            print("\n--- DEBUG: FAILED [Step 1: Could not find answer string] ---")
+            print(f"  - Question: '{stmt[:80]}...'")
+            print(f"  - Known Correct Answer: {correct_ans}")
+            print(f"  - Model's Full Generated Answer: '{model_answer_text}'")
+            print("------------------------------------------------------")
             continue
 
-        # Use the new, robust string-matching function to find token positions
         answer_token_indices = find_answer_token_indices_by_string_matching(
             tokenizer,
             generated_ids,
@@ -247,7 +252,14 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
             exact_answer_str
         )
 
+        # Check if the token mapping was successful
         if answer_token_indices is None:
+            print("\n--- DEBUG: FAILED [Step 2: Could not map string to tokens] ---")
+            print(f"  - Question: '{stmt[:80]}...'")
+            print(f"  - Known Correct Answer: {correct_ans}")
+            print(f"  - Model's Full Generated Answer: '{model_answer_text}'")
+            print(f"  - String We Found: '{exact_answer_str}' (but failed to map to tokens)")
+            print("----------------------------------------------------------")
             continue
 
         with t.no_grad():
