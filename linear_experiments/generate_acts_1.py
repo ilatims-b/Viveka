@@ -300,7 +300,7 @@ if __name__ == '__main__':
     parser.add_argument('--layers', nargs='+', required=True, type=int, help='Layer indices to extract from (-1 for all)')
     parser.add_argument('--datasets', nargs='+', required=True, help='Dataset names (without .csv)')
     parser.add_argument('--output_dir', default='acts', help='Root directory for saving activations')
-    parser.add_-argument('--device', default='cpu', help='Device to run on (cpu or cuda)')
+    parser.add_argument('--device', default='cpu', help='Device to run on (cpu or cuda)')
     parser.add_argument('--enable_llm_extraction', action='store_true', help='Enable using the primary model for LLM-based answer extraction as a fallback to string matching.')
     args = parser.parse_args()
 
