@@ -6,6 +6,7 @@ from tqdm import tqdm
 import os
 import configparser
 import glob
+from thefuzz import process, fuzz
 
 # Load configuration
 config = configparser.ConfigParser()
@@ -81,7 +82,12 @@ def find_exact_answer_simple(model_answer: str, correct_answer):
     return None
 
 def extract_answer_with_llm(question, model_answer, model, tokenizer):
-    """Strategy 2: Use the provided LLM to extract the most relevant answer."""
+    """
+    Strategy 2: Use the provided LLM to extract the most relevant answer.
+    **FIXED**: Removed the check that forced the extracted answer to be a substring
+    of the original model_answer. This allows it to extract answers that are
+    semantically correct but not verbatim (e.g., handling typos or rephrasing).
+    """
     prompt = _create_extraction_prompt(question, model_answer)
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(model.device)
     
@@ -89,72 +95,76 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer):
         outputs = model.generate(**inputs, max_new_tokens=30, pad_token_id=tokenizer.eos_token_id)
     
     decoded_output = tokenizer.decode(outputs[0], skip_special_tokens=False)
-    # Get model name from its config for the cleanup function
     model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'gemma'
     exact_answer = _cleanup_batched_answer(decoded_output, model_name)
 
-    if exact_answer and exact_answer != "NO ANSWER" and exact_answer.lower() in model_answer.lower():
+    # **FIX**: The problematic check `and exact_answer.lower() in model_answer.lower()` is removed.
+    # The purpose of the LLM extractor is to find the answer even if the model's output
+    # is messy or, in this case, factually wrong. The extractor should extract what the
+    # model *thinks* the answer is.
+    if exact_answer and exact_answer != "NO ANSWER":
         return exact_answer
     return None
 
-from thefuzz import process, fuzz
 
-def find_answer_token_indices_by_string_matching(tokenizer, generated_ids, model_answer_text, exact_answer_str):
+def find_answer_token_indices_by_string_matching(tokenizer, generated_ids, exact_answer_str):
     """
-    Finds answer tokens using fuzzy string matching on the decoded text,
-    then maps the character positions back to token IDs.
+    Finds answer tokens by performing a fuzzy string match on the fully decoded
+    text and then mapping character positions back to token IDs.
+
+    **FIXED**: This function now works exclusively with the full decoded text
+    from the generated IDs, resolving the token mapping failures.
     """
-    # 1. Fuzzy String Search
-    # Find the best match for the exact_answer_str inside the model's generated text.
-    # The score_cutoff ensures we only accept very close matches (e.g., 90% similar).
+    # 1. Decode the ENTIRE generated sequence. This is the source of truth.
+    # The previous error occurred because we were searching in a cleaned `model_answer_text`
+    # but the token offsets were based on this full, uncleaned text.
+    full_decoded_text = tokenizer.decode(generated_ids, skip_special_tokens=False)
+
+    # 2. Find the character position of the answer within the model's *actual output*.
+    # We need to locate where the answer part begins in the full text.
+    # The answer text starts after the prompt, which is what generated_ids contains.
+    # A robust way is to find the last occurrence of the "Exact answer:" pattern.
+    answer_prompt_marker = "Exact answer:"
+    # We search from the end in case the prompt itself contains this phrase
+    prompt_and_answer_split = full_decoded_text.rfind(answer_prompt_marker)
+    
+    search_text = full_decoded_text
+    if prompt_and_answer_split != -1:
+        # We search only in the part of the string after the prompt marker
+        search_text = full_decoded_text[prompt_and_answer_split:]
+
+    # 3. Fuzzy String Search on the correct text
     match = process.extractOne(
         exact_answer_str,
-        [model_answer_text], # Needs to be a list of choices
+        [search_text], # Search within the relevant part of the decoded string
         scorer=fuzz.ratio,
-        score_cutoff=90
+        score_cutoff=85 # Slightly more lenient cutoff
     )
 
-    # If no good match is found, return None
     if not match:
         return None
 
     best_match_str = match[0]
     
-    # 2. Find Character Positions
-    # Find the start character index of the best match within the generated answer
-    try:
-        start_char_in_answer = model_answer_text.find(best_match_str)
-        end_char_in_answer = start_char_in_answer + len(best_match_str)
-    except AttributeError:
-        # Handle cases where find might fail
-        return None
+    # 4. Find Character Positions relative to the start of the search_text
+    start_char_in_search_text = search_text.find(best_match_str)
+    
+    # Calculate absolute character position in the `full_decoded_text`
+    absolute_start_char = (prompt_and_answer_split if prompt_and_answer_split != -1 else 0) + start_char_in_search_text
+    absolute_end_char = absolute_start_char + len(best_match_str)
 
-    # 3. Map Characters to Tokens
-    # Get the character-to-token offset mapping for the *entire generated sequence*.
-    # We decode the full sequence to ensure the mapping is accurate.
-    full_decoded_text = tokenizer.decode(generated_ids)
+    # 5. Map Characters to Tokens using offset mapping
     encoding = tokenizer(
         full_decoded_text,
-        return_offsets_mapping=True
+        return_offsets_mapping=True,
+        return_tensors='pt'
     )
-    offset_mapping = encoding['offset_mapping']
-    
-    # We also need to know where the answer *starts* in the full decoded text
-    # This is not always just the length of the prompt due to special tokens
-    try:
-        search_start_char = full_decoded_text.rfind(model_answer_text)
-    except:
-        return None
-    
-    # Calculate the absolute start and end character positions of our match
-    target_char_start = search_start_char + start_char_in_answer
-    target_char_end = search_start_char + end_char_in_answer
-    
-    # Find all tokens whose character spans overlap with our target span
+    offset_mapping = encoding['offset_mapping'][0]
+
     token_indices = []
     for i, (token_start_char, token_end_char) in enumerate(offset_mapping):
-        # Check for any overlap between the token's span and the target's span
-        if token_start_char < target_char_end and token_end_char > target_char_start:
+        # Find all tokens that overlap with our matched string's character span
+        if token_start_char < absolute_end_char and token_end_char > absolute_start_char:
             token_indices.append(i)
             
     return token_indices if token_indices else None
@@ -203,7 +213,6 @@ def load_statements(dataset_name):
     return df[question_col].tolist(), df[label_col].tolist()
 
 
-# **MODIFIED FUNCTION SIGNATURE**
 def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indices, device, enable_llm_extraction=False):
     """
     Attaches hooks and gets activations for exact answers using a robust,
@@ -211,7 +220,7 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
     """
     attn_hooks, mlp_hooks = {}, {}
     handles = []
-    for l in layer_indices:
+    for l in layer_indices: 
         hook_a, hook_m = Hook(), Hook()
         handles.extend([
             layers[l].self_attn.register_forward_hook(hook_a),
@@ -227,16 +236,17 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
         input_ids = tokenizer.encode(stmt, return_tensors='pt', add_special_tokens=True).to(device)
 
         with t.no_grad():
-            generated_ids = model.generate(input_ids, max_new_tokens=64, pad_token_id=tokenizer.pad_token_id)[0]
+            # Generate the full sequence including the prompt
+            generated_ids_with_prompt = model.generate(input_ids, max_new_tokens=64, pad_token_id=tokenizer.pad_token_id)[0]
         
-        model_answer_text = tokenizer.decode(generated_ids[input_ids.shape[1]:], skip_special_tokens=True).strip()
+        # Decode only the generated part for answer finding
+        model_answer_text = tokenizer.decode(generated_ids_with_prompt[input_ids.shape[1]:], skip_special_tokens=True).strip()
         
         exact_answer_str = find_exact_answer_simple(model_answer_text, correct_ans)
 
         if not exact_answer_str and enable_llm_extraction:
             exact_answer_str = extract_answer_with_llm(stmt, model_answer_text, model, tokenizer)
         
-        # Check if the answer string was found
         if not exact_answer_str:
             print("\n--- DEBUG: FAILED [Step 1: Could not find answer string] ---")
             print(f"  - Question: '{stmt[:80]}...'")
@@ -245,14 +255,13 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
             print("------------------------------------------------------")
             continue
 
+        # **MODIFIED CALL**: Pass the full generated sequence with prompt
         answer_token_indices = find_answer_token_indices_by_string_matching(
             tokenizer,
-            generated_ids,
-            model_answer_text,
+            generated_ids_with_prompt,
             exact_answer_str
         )
 
-        # Check if the token mapping was successful
         if answer_token_indices is None:
             print("\n--- DEBUG: FAILED [Step 2: Could not map string to tokens] ---")
             print(f"  - Question: '{stmt[:80]}...'")
@@ -263,7 +272,7 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
             continue
 
         with t.no_grad():
-            model(generated_ids.unsqueeze(0))
+            model(generated_ids_with_prompt.unsqueeze(0))
 
         for l in layer_indices:
             a = attn_hooks[l].out[0][answer_token_indices].mean(dim=0).detach()
@@ -282,6 +291,7 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
         
     return acts
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Extract activations for exact answers using a single model.")
     parser.add_argument('--model_family', default='Llama3', help='Primary model family')
@@ -290,8 +300,7 @@ if __name__ == '__main__':
     parser.add_argument('--layers', nargs='+', required=True, type=int, help='Layer indices to extract from (-1 for all)')
     parser.add_argument('--datasets', nargs='+', required=True, help='Dataset names (without .csv)')
     parser.add_argument('--output_dir', default='acts', help='Root directory for saving activations')
-    parser.add_argument('--device', default='cpu', help='Device to run on (cpu or cuda)')
-    # **MODIFIED ARGUMENT**: A boolean flag to enable LLM-based extraction.
+    parser.add_-argument('--device', default='cpu', help='Device to run on (cpu or cuda)')
     parser.add_argument('--enable_llm_extraction', action='store_true', help='Enable using the primary model for LLM-based answer extraction as a fallback to string matching.')
     args = parser.parse_args()
 
@@ -304,7 +313,6 @@ if __name__ == '__main__':
     print(f"Loading primary model: {args.model_family} {args.model_size}...")
     tokenizer, model, layer_modules = load_model(args.model_family, args.model_size, args.model_type, args.device)
     
-    # The second model loading block has been removed.
     if args.enable_llm_extraction:
         print("LLM-based extraction is ENABLED (will use the primary model).")
     else:
@@ -329,7 +337,6 @@ if __name__ == '__main__':
             batch_stmts = stmts[start:start + batch_size]
             batch_correct_ans = correct_answers[start:start + batch_size]
             
-            # **MODIFIED CALL**: Pass the boolean flag instead of the second model.
             acts = get_acts(batch_stmts, batch_correct_ans, tokenizer, model, layer_modules, li, args.device, enable_llm_extraction=args.enable_llm_extraction)
             
             if not acts:
