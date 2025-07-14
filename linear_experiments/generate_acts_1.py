@@ -188,26 +188,47 @@ class Hook:
         self.out = module_outputs[0] if isinstance(module_outputs, tuple) else module_outputs
 
 def load_model(model_family: str, model_size: str, model_type: str, device: str):
-    """Loads the primary model whose activations will be probed."""
-    model_path = os.path.join(
-        config[model_family]['weights_directory'],
-        config[model_family][f'{model_size}_{model_type}_subdir']
-    )
-    if model_family == 'Llama2':
-        tokenizer = LlamaTokenizer.from_pretrained(model_path)
-        model = LlamaForCausalLM.from_pretrained(model_path)
-        tokenizer.bos_token = '<s>'
+    """
+    Loads the primary model and tokenizer directly from the Hugging Face Hub.
+    **MODIFIED**: This function now constructs a Hub repository ID instead of a local path.
+    """
+    # 1. Determine the Hugging Face organization/namespace
+    # You can add other model families here as needed.
+    if model_family.lower() == 'gemma2':
+        organization = 'google'
+        model_name = f"gemma-2-{model_size.lower()}-{model_type.lower()}"
+    elif model_family.lower() == 'llama3':
+        organization = 'meta-llama'
+        # Example: meta-llama/Meta-Llama-3-8B-Instruct
+        model_name_suffix = "Instruct" if model_type.lower() == 'instruct' else ""
+        model_name = f"Meta-Llama-3-{model_size}{model_name_suffix}"
     else:
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
-        model = AutoModelForCausalLM.from_pretrained(model_path)
+        # Fallback for other potential models, assuming a 'namespace/model_name' structure
+        # This part might need adjustment depending on the models you use.
+        organization = model_family.lower()
+        model_name = f"{model_size}-{model_type}"
+
+    # 2. Construct the full repository ID
+    model_path = f"{organization}/{model_name}"
+    print(f"Loading from Hugging Face Hub: {model_path}")
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        device_map=device, # More robust for multi-GPU and memory management
+        torch_dtype=t.bfloat16 if t.cuda.is_available() and t.cuda.is_bf16_supported() else t.float16
+    )
 
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         model.config.pad_token_id = model.config.eos_token_id
 
-    # Simplified dtype handling for broader compatibility
-    model = model.to(device=device)
-    return tokenizer, model, model.model.layers
+    # The layers are typically found in model.model.layers
+    layers = model.model.layers if hasattr(model, 'model') and hasattr(model.model, 'layers') else None
+    if layers is None:
+        raise AttributeError("Could not find the model's layers. Please check the model architecture.")
+        
+    return tokenizer, model, layers
 
 def load_statements(dataset_name):
     """Loads questions and correct answers from a CSV file."""
