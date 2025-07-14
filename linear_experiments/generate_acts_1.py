@@ -97,14 +97,20 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer):
         return exact_answer
     return None
 
-def find_answer_token_indices(full_sequence_ids, answer_ids):
-    """Finds the subsequence of answer token IDs within the full sequence of token IDs."""
+def find_answer_token_indices(full_sequence_ids, answer_ids, search_start_index: int):
+    """
+    Finds the subsequence of answer token IDs within the full sequence of token IDs,
+    starting the search from a specific index.
+    """
     full_list = full_sequence_ids.cpu().numpy().tolist()
     answer_list = answer_ids.cpu().numpy().tolist()
-    for i in range(len(full_list) - len(answer_list) + 1):
+
+    # Start searching from where the generated answer begins
+    for i in range(search_start_index, len(full_list) - len(answer_list) + 1):
         if full_list[i:i + len(answer_list)] == answer_list:
             return list(range(i, i + len(answer_list)))
     return None
+
 
 class Hook:
     def __init__(self):
@@ -188,7 +194,8 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
             continue
 
         exact_answer_ids = tokenizer.encode(exact_answer_str, add_special_tokens=False, return_tensors='pt').to(device)[0]
-        answer_token_indices = find_answer_token_indices(generated_ids, exact_answer_ids)
+        prompt_len = input_ids.shape[1]
+        answer_token_indices = find_answer_token_indices(generated_ids, exact_answer_ids, search_start_index=prompt_len)
 
         if answer_token_indices is None:
             print(f"\nWarning: Could not align tokens for answer '{exact_answer_str}'")
