@@ -94,7 +94,8 @@ def get_acts(statements, tokenizer, model, layers, layer_indices, device):
         ids = tokenizer.encode(stmt, return_tensors='pt', add_special_tokens=True).to(device)
         model(ids)
         for l in layer_indices:
-            a = attn_hooks[l].out[0, -1].detach()
+            a = attn_hooks[l].out[0, -1].detach()  #this is the place where we take only the -1 token for probing
+                                                   #what we need here is the exact answer token. 
             m = mlp_hooks[l].out[0, -1].detach()
             acts[2*l].append(a)
             acts[2*l+1].append(m)

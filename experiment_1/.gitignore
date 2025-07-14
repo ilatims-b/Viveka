@@ -37,3 +37,4 @@ data/triviaqa-unfiltered/
 output/
 code/wandb/
 checkpoints/
+wnbshi/
