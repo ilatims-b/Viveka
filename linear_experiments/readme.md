@@ -1,1 +1,1 @@
-Needed to add smth here to create the file
+For documentation, check Notion 
