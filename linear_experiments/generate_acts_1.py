@@ -4,18 +4,32 @@ import argparse
 import pandas as pd
 from tqdm import tqdm
 import os
-import configparser
 import glob
 from thefuzz import process, fuzz
 
-# Load configuration
-config = configparser.ConfigParser()
-# A dummy config.ini might be needed to run this script directly
-if not os.path.exists('config.ini'):
-    with open('config.ini', 'w') as f:
-        f.write('[Llama3]\nweights_directory=./\n8B_base_subdir=.\n')
-config.read('config.ini')
+# --- Helper Functions ---
 
+def check_correctness(model_answer, correct_answers_list):
+    """Checks if any of the possible correct answers are in the model's answer."""
+    # Ensure the list of correct answers is actually a list
+    if isinstance(correct_answers_list, str):
+        try:
+            labels_ = eval(correct_answers_list)
+        except:
+            labels_ = [correct_answers_list] # Fallback for simple strings
+    else:
+        labels_ = correct_answers_list
+
+    if not isinstance(labels_, list):
+        labels_ = [str(labels_)]
+
+    if not isinstance(model_answer, str):
+        return 0 # Cannot be correct if there's no answer
+
+    for ans in labels_:
+        if str(ans).lower() in model_answer.lower():
+            return 1 # Correct
+    return 0 # Incorrect
 
 def _create_extraction_prompt(raw_question, model_answer):
     """Creates the standard f-string prompt for the LLM extractor."""
@@ -42,45 +56,30 @@ def _create_extraction_prompt(raw_question, model_answer):
     """
 
 def _cleanup_batched_answer(decoded_output, model_name):
-    """
-    Applies model-specific cleanup logic to the raw generated text.
-    **FIXED**: Made this function more robust to handle various special tokens
-    and cases where the 'Exact answer:' prompt is not followed.
-    """
+    """Applies model-specific cleanup logic to the raw generated text."""
     if "Exact answer:" in decoded_output:
         answer_part = decoded_output.split("Exact answer:")[-1]
     else:
         answer_part = decoded_output
 
-    # Generic cleanup for all known special/EOS tokens, including <end_of_turn>
-    tokens_to_remove = [
-        ".</s>", "</s>",
-        ".<|eot_id|>", "<|eot_id|>",
-        ".<eos>", "<eos>",
-        "<end_of_turn>"
-    ]
+    tokens_to_remove = [".</s>", "</s>", ".<|eot_id|>", "<|eot_id|>", ".<eos>", "<eos>", "<end_of_turn>"]
     for token in tokens_to_remove:
         answer_part = answer_part.replace(token, "")
 
-    # Further cleanup: take the first non-empty line and clean it
     for line in answer_part.strip().split('\n'):
         cleaned_line = line.strip()
         if cleaned_line:
             return cleaned_line.split("(")[0].strip().strip(".")
-            
-    return "" # Return empty if no answer is found
+    return ""
 
 def find_exact_answer_simple(model_answer: str, correct_answer):
     """Strategy 1: Fast-path logic using simple string searching."""
-    if not isinstance(model_answer, str):
-        return None
+    if not isinstance(model_answer, str): return None
     try:
         if isinstance(correct_answer, str):
             correct_answer_eval = eval(correct_answer)
-            if isinstance(correct_answer_eval, list):
-                correct_answer = correct_answer_eval
-    except (SyntaxError, NameError):
-        pass
+            if isinstance(correct_answer_eval, list): correct_answer = correct_answer_eval
+    except (SyntaxError, NameError): pass
 
     found_ans, found_ans_index = "", -1
     if isinstance(correct_answer, list):
@@ -112,70 +111,30 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer):
     model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'gemma'
     exact_answer = _cleanup_batched_answer(decoded_output, model_name)
 
-    if exact_answer and exact_answer.upper() != "NO ANSWER":
-        return exact_answer
+    if exact_answer and exact_answer.upper() != "NO ANSWER": return exact_answer
     return None
 
-from thefuzz import process, fuzz
-
 def find_answer_token_indices_by_string_matching(tokenizer, full_generated_ids, prompt_ids, exact_answer_str):
-    """
-    Finds answer tokens by performing a fuzzy string match on the *fully decoded*
-    text and then mapping character positions back to the original token IDs.
-
-    **REWRITTEN AGAIN FOR ROBUSTNESS**: This version is the most reliable.
-    1.  It decodes the ENTIRE sequence (prompt + answer) just once.
-    2.  It creates ONE offset mapping from that full decoded text.
-    3.  It finds the answer string within the full decoded text.
-    4.  It maps the string's character positions back to the original, absolute token
-        indices. This completely avoids any re-tokenization bugs.
-    """
-    # 1. Decode the entire generated sequence once. This is our source of truth.
+    """Finds answer tokens by performing a fuzzy string match on the fully decoded text."""
     try:
         full_decoded_text = tokenizer.decode(full_generated_ids, skip_special_tokens=False)
     except:
-        # Some tokenizers might fail on raw IDs, though rare.
         return None
 
-    # 2. Fuzzy String Search for the clean answer within the full decoded text.
-    # Using partial_ratio is good for finding substrings in messy model output.
-    match = process.extractOne(
-        exact_answer_str,
-        [full_decoded_text],
-        scorer=fuzz.partial_ratio,
-        score_cutoff=90
-    )
+    match = process.extractOne(exact_answer_str, [full_decoded_text], scorer=fuzz.partial_ratio, score_cutoff=90)
+    if not match: return None
 
-    if not match:
-        return None
-
-    # The fuzzy match might find a substring. We need the full matched string.
     best_match_str = match[0]
-    
-    # 3. Find the character start/end of the match within the full_decoded_text
     start_char = full_decoded_text.find(best_match_str)
-    if start_char == -1:
-        return None  # Should not happen if a match was found, but a good safeguard.
+    if start_char == -1: return None
     end_char = start_char + len(best_match_str)
 
-    # 4. Get the character-to-token offset mapping for the ENTIRE sequence.
-    # CRITICAL: `add_special_tokens=False` is vital to prevent the tokenizer
-    # from adding a BOS token and misaligning all offsets.
-    encoding = tokenizer(
-        full_decoded_text,
-        return_offsets_mapping=True,
-        add_special_tokens=False
-    )
+    encoding = tokenizer(full_decoded_text, return_offsets_mapping=True, add_special_tokens=False)
     offset_mapping = encoding['offset_mapping']
 
-    # 5. Find all tokens whose character spans overlap with our matched string.
-    # These are the final, absolute token indices. No further calculation is needed.
     token_indices = []
     for i, (token_start, token_end) in enumerate(offset_mapping):
-        # Check for any overlap: (start1 < end2) and (start2 < end1)
         if token_start < end_char and start_char < token_end:
-            # We must also ensure the index is within the bounds of the tensor that will be indexed.
-            # The tensor's length is len(full_generated_ids).
             if i < len(full_generated_ids):
                 token_indices.append(i)
 
@@ -188,34 +147,26 @@ class Hook:
         self.out = module_outputs[0] if isinstance(module_outputs, tuple) else module_outputs
 
 def load_model(model_family: str, model_size: str, model_type: str, device: str):
-    """
-    Loads the primary model and tokenizer directly from the Hugging Face Hub.
-    **MODIFIED**: This function now constructs a Hub repository ID instead of a local path.
-    """
-    # 1. Determine the Hugging Face organization/namespace
-    # You can add other model families here as needed.
+    """Loads the primary model and tokenizer directly from the Hugging Face Hub."""
     if model_family.lower() == 'gemma2':
         organization = 'google'
-        model_name = f"gemma-2-{model_size.lower()}-{model_type.lower()}"
+        size_str = model_size.lower()
+        type_str = '-it' if model_type.lower() in ['chat', 'instruct'] else ''
+        model_name = f"gemma-{size_str}{type_str}"
     elif model_family.lower() == 'llama3':
         organization = 'meta-llama'
-        # Example: meta-llama/Meta-Llama-3-8B-Instruct
-        model_name_suffix = "Instruct" if model_type.lower() == 'instruct' else ""
-        model_name = f"Meta-Llama-3-{model_size}{model_name_suffix}"
+        type_str = "-instruct" if model_type.lower() in ['chat', 'instruct'] else ""
+        model_name = f"Meta-Llama-3-{model_size}{type_str}"
     else:
-        # Fallback for other potential models, assuming a 'namespace/model_name' structure
-        # This part might need adjustment depending on the models you use.
-        organization = model_family.lower()
-        model_name = f"{model_size}-{model_type}"
+        raise ValueError(f"Model family '{model_family}' is not configured for Hub loading.")
 
-    # 2. Construct the full repository ID
     model_path = f"{organization}/{model_name}"
     print(f"Loading from Hugging Face Hub: {model_path}")
 
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
-        device_map=device, # More robust for multi-GPU and memory management
+        device_map='auto',
         torch_dtype=t.bfloat16 if t.cuda.is_available() and t.cuda.is_bf16_supported() else t.float16
     )
 
@@ -223,10 +174,9 @@ def load_model(model_family: str, model_size: str, model_type: str, device: str)
         tokenizer.pad_token = tokenizer.eos_token
         model.config.pad_token_id = model.config.eos_token_id
 
-    # The layers are typically found in model.model.layers
-    layers = model.model.layers if hasattr(model, 'model') and hasattr(model.model, 'layers') else None
+    layers = getattr(getattr(model, 'model', None), 'layers', None)
     if layers is None:
-        raise AttributeError("Could not find the model's layers. Please check the model architecture.")
+        raise AttributeError(f"Could not find layers for model {model_path}. Please check the model architecture.")
         
     return tokenizer, model, layers
 
@@ -237,14 +187,14 @@ def load_statements(dataset_name):
     question_col = 'statement' if 'statement' in df.columns else 'raw_question'
     label_col = 'label' if 'label' in df.columns else 'correct_answer'
     if question_col not in df.columns or label_col not in df.columns:
-        raise ValueError(f"Dataset {dataset_name}.csv must have a question and a answer column.")
-    return df[question_col].tolist(), df[label_col].tolist()
+        raise ValueError(f"Dataset {dataset_name}.csv must have a question and an answer column.")
+    return df, df[question_col].tolist(), df[label_col].tolist()
 
+# --- Main Activation & Correctness Logic ---
 
 def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indices, device, enable_llm_extraction=False):
     """
-    Attaches hooks and gets activations for exact answers using a robust,
-    string-matching-based extraction process with built-in debugging.
+    Attaches hooks, gets activations, checks correctness, and returns all results.
     """
     attn_hooks, mlp_hooks = {}, {}
     handles = []
@@ -258,45 +208,45 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
 
     acts = {2*l: [] for l in layer_indices}
     acts.update({2*l + 1: [] for l in layer_indices})
+    
+    batch_correctness, batch_model_answers = [], []
 
-    desc = "Finding answers and extracting activations"
-    for stmt, correct_ans in tqdm(zip(statements, correct_answers), desc=desc, total=len(statements)):
-        input_ids = tokenizer.encode(stmt, return_tensors='pt', add_special_tokens=True).to(device)
+    desc = "Processing batch"
+    for stmt, correct_ans in tqdm(zip(statements, correct_answers), desc=desc, total=len(statements), leave=False):
+        input_ids = tokenizer.encode(stmt, return_tensors='pt', add_special_tokens=True).to(model.device)
 
         with t.no_grad():
             generated_ids = model.generate(input_ids, max_new_tokens=64, pad_token_id=tokenizer.pad_token_id)[0]
         
         model_answer_text = tokenizer.decode(generated_ids[input_ids.shape[1]:], skip_special_tokens=True).strip()
         
+        is_correct = check_correctness(model_answer_text, correct_ans)
+        batch_model_answers.append(model_answer_text)
+        batch_correctness.append(is_correct)
+        
         exact_answer_str = find_exact_answer_simple(model_answer_text, correct_ans)
-
         if not exact_answer_str and enable_llm_extraction:
             exact_answer_str = extract_answer_with_llm(stmt, model_answer_text, model, tokenizer)
         
         if not exact_answer_str:
-            print(f"\n--- DEBUG: FAILED [Step 1: Could not find answer string] ---\n - Question: '{stmt[:80]}...'\n - Model's Answer: '{model_answer_text}'")
             continue
 
-        # **MODIFIED CALL**: Pass the full sequence, the prompt, and the clean answer string.
-        answer_token_indices = find_answer_token_indices_by_string_matching(
-            tokenizer,
-            generated_ids,      # The full generated sequence
-            input_ids,          # The prompt sequence
-            exact_answer_str
-        )
-
+        answer_token_indices = find_answer_token_indices_by_string_matching(tokenizer, generated_ids, input_ids, exact_answer_str)
         if answer_token_indices is None:
-            print(f"\n--- DEBUG: FAILED [Step 2: Could not map string to tokens] ---\n - Question: '{stmt[:80]}...'\n - Model's Answer: '{model_answer_text}'\n - String We Found: '{exact_answer_str}' (but failed to map)")
             continue
 
         with t.no_grad():
             model(generated_ids.unsqueeze(0))
 
         for l in layer_indices:
-            a = attn_hooks[l].out[0][answer_token_indices].mean(dim=0).detach()
-            m = mlp_hooks[l].out[0][answer_token_indices].mean(dim=0).detach()
-            acts[2*l].append(a)
-            acts[2*l+1].append(m)
+            try:
+                a = attn_hooks[l].out[0][answer_token_indices].mean(dim=0).detach()
+                m = mlp_hooks[l].out[0][answer_token_indices].mean(dim=0).detach()
+                acts[2*l].append(a)
+                acts[2*l+1].append(m)
+            except IndexError:
+                print(f"IndexError on layer {l}. Skipping activation extraction for this item.")
+                break
 
     for k in list(acts.keys()):
         if acts[k]:
@@ -307,20 +257,20 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
     for h in handles:
         h.remove()
         
-    return acts
+    return acts, batch_correctness, batch_model_answers
 
-# Main execution block remains the same
+# --- Main Execution Block ---
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Extract activations for exact answers using a single model.")
-    parser.add_argument('--model_family', default='Llama3', help='Primary model family')
-    parser.add_argument('--model_size', default='8B', help='Primary model size')
-    parser.add_argument('--model_type', default='base', help='Primary model type (base or chat)')
+    parser = argparse.ArgumentParser(description="Extract activations and check correctness from Hugging Face models.")
+    parser.add_argument('--model_family', default='Gemma2', help='Primary model family (e.g., Gemma2, Llama3)')
+    parser.add_argument('--model_size', default='2B', help='Primary model size (e.g., 2B, 8B)')
+    parser.add_argument('--model_type', default='chat', help='Primary model type (base, chat, or instruct)')
     parser.add_argument('--layers', nargs='+', required=True, type=int, help='Layer indices to extract from (-1 for all)')
     parser.add_argument('--datasets', nargs='+', required=True, help='Dataset names (without .csv)')
-    parser.add_argument('--output_dir', default='acts', help='Root directory for saving activations')
-    parser.add_argument('--device', default='cpu', help='Device to run on (cpu or cuda)')
-    parser.add_argument('--enable_llm_extraction', action='store_true', help='Enable using the primary model for LLM-based answer extraction as a fallback to string matching.')
+    parser.add_argument('--output_dir', default='acts_output', help='Root directory for saving all outputs')
+    parser.add_argument('--device', default='cuda' if t.cuda.is_available() else 'cpu', help='Device to run on (cpu or cuda)')
+    parser.add_argument('--enable_llm_extraction', action='store_true', help='Enable LLM-based answer extraction as a fallback.')
     args = parser.parse_args()
 
     ds = args.datasets
@@ -329,21 +279,16 @@ if __name__ == '__main__':
 
     t.set_grad_enabled(False)
 
-    print(f"Loading primary model: {args.model_family} {args.model_size}...")
     tokenizer, model, layer_modules = load_model(args.model_family, args.model_size, args.model_type, args.device)
     
-    if args.enable_llm_extraction:
-        print("LLM-based extraction is ENABLED (will use the primary model).")
-    else:
-        print("LLM-based extraction is DISABLED. Using simple string matching only.")
-
     li = args.layers
     if -1 in li:
         li = list(range(len(layer_modules)))
 
     for dataset in ds:
+        print(f"\n--- Processing dataset: {dataset} ---")
         try:
-            stmts, correct_answers = load_statements(dataset)
+            df, stmts, correct_answers = load_statements(dataset)
         except (FileNotFoundError, ValueError) as e:
             print(f"Skipping dataset '{dataset}': {e}")
             continue
@@ -351,17 +296,35 @@ if __name__ == '__main__':
         save_base = os.path.join(args.output_dir, args.model_family, args.model_size, args.model_type, dataset)
         os.makedirs(save_base, exist_ok=True)
         
+        all_correctness_results, all_model_answers = [], []
+        
         batch_size = 25
-        for start in range(0, len(stmts), batch_size):
+        for start in tqdm(range(0, len(stmts), batch_size), desc=f"Overall progress for {dataset}"):
             batch_stmts = stmts[start:start + batch_size]
             batch_correct_ans = correct_answers[start:start + batch_size]
             
-            acts = get_acts(batch_stmts, batch_correct_ans, tokenizer, model, layer_modules, li, args.device, enable_llm_extraction=args.enable_llm_extraction)
+            acts, batch_correctness, batch_model_ans = get_acts(
+                batch_stmts, batch_correct_ans, tokenizer, model, layer_modules, li, args.device, 
+                enable_llm_extraction=args.enable_llm_extraction
+            )
             
-            if not acts:
-                print(f"No valid activations collected for batch in {dataset} (starts at index {start}).")
-                continue
+            all_correctness_results.extend(batch_correctness)
+            all_model_answers.extend(batch_model_ans)
 
-            for pseudo, tensor in acts.items():
-                filename = os.path.join(save_base, f"layer_{pseudo}_{start}.pt")
-                t.save(tensor, filename)
+            if not acts:
+                # print(f"No valid activations collected for batch starting at index {start}.")
+                pass
+            else:
+                for pseudo, tensor in acts.items():
+                    filename = os.path.join(save_base, f"layer_{pseudo}_{start}.pt")
+                    t.save(tensor, filename)
+        
+        if len(all_correctness_results) == len(df):
+            df['model_answer'] = all_model_answers
+            df['automatic_correctness'] = all_correctness_results
+            
+            output_csv_path = os.path.join(save_base, f"{dataset}_with_results.csv")
+            df.to_csv(output_csv_path, index=False)
+            print(f"✅ Saved dataset with results to: {output_csv_path}")
+        else:
+            print(f"⚠️ Warning: Mismatch between results ({len(all_correctness_results)}) and dataset rows ({len(df)}). CSV not saved.")
