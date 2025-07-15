@@ -199,15 +199,15 @@ def extract_answer_direct(model_answer, question):
 def is_vague_or_non_answer(model_answer, question):
     """
     Check if the model answer is vague or doesn't properly answer the question
-    Made less aggressive
+    Much more comprehensive detection
     """
     if not model_answer or len(model_answer.strip()) == 0:
         return True
     
     answer_lower = model_answer.lower().strip()
     
-    # Only check for the most obvious non-answer patterns
-    vague_patterns = [
+    # Check for explicit non-answer patterns
+    non_answer_patterns = [
         "i don't know",
         "i'm not sure",
         "i cannot",
@@ -220,23 +220,152 @@ def is_vague_or_non_answer(model_answer, question):
         "i apologize",
         "cannot determine",
         "cannot provide",
-        "not specified in",
-        "not mentioned in",
-        "not clear from",
+        "not specified",
+        "not mentioned",
+        "not clear",
         "difficult to determine",
         "hard to determine",
         "no information",
         "no details",
-        "cannot answer"
+        "cannot answer",
+        "not sure",
+        "unclear",
+        "unknown",
+        "not known",
+        "can't say",
+        "cannot say",
+        "not certain",
+        "uncertain"
     ]
     
-    # Check if answer starts with these patterns (more precise)
-    for pattern in vague_patterns:
-        if answer_lower.startswith(pattern) or f" {pattern}" in answer_lower:
+    for pattern in non_answer_patterns:
+        if pattern in answer_lower:
+            return True
+    
+    # Check for incomplete/cut-off sentences that suggest the model didn't finish properly
+    incomplete_patterns = [
+        "the word",
+        "the opening",
+        "the first",
+        "the last",
+        "the main",
+        "the original",
+        "the story",
+        "the film",
+        "the movie",
+        "the book",
+        "the song",
+        "the album",
+        "the show",
+        "the series",
+        "the episode",
+        "the character",
+        "the actor",
+        "the actress",
+        "the director",
+        "the author",
+        "the artist",
+        "the band",
+        "the group",
+        "the title",
+        "the name",
+        "the question",
+        "the answer",
+        "based on",
+        "according to",
+        "refers to",
+        "relates to",
+        "is about",
+        "deals with",
+        "concerns",
+        "involves",
+        "features",
+        "includes",
+        "contains",
+        "describes",
+        "explains",
+        "discusses",
+        "mentions",
+        "states",
+        "says",
+        "tells",
+        "shows",
+        "indicates",
+        "suggests",
+        "implies",
+        "means",
+        "represents"
+    ]
+    
+    # Check if answer starts with these incomplete patterns
+    for pattern in incomplete_patterns:
+        if answer_lower.startswith(pattern):
+            return True
+    
+    # Check if answer ends abruptly (incomplete sentence indicators)
+    if (answer_lower.endswith(" is") or 
+        answer_lower.endswith(" was") or 
+        answer_lower.endswith(" are") or 
+        answer_lower.endswith(" were") or
+        answer_lower.endswith(" the") or 
+        answer_lower.endswith(" a") or 
+        answer_lower.endswith(" an") or
+        answer_lower.endswith(" of") or
+        answer_lower.endswith(" in") or
+        answer_lower.endswith(" on") or
+        answer_lower.endswith(" at") or
+        answer_lower.endswith(" to") or
+        answer_lower.endswith(" for") or
+        answer_lower.endswith(" with") or
+        answer_lower.endswith(" by") or
+        answer_lower.endswith(" from") or
+        answer_lower.endswith(" about") or
+        answer_lower.endswith(" that") or
+        answer_lower.endswith(" which") or
+        answer_lower.endswith(" who") or
+        answer_lower.endswith(" when") or
+        answer_lower.endswith(" where") or
+        answer_lower.endswith(" how") or
+        answer_lower.endswith(" why")):
+        return True
+    
+    # Check for overly generic answers
+    generic_answers = [
+        "it depends",
+        "various",
+        "many",
+        "several",
+        "different",
+        "multiple",
+        "numerous",
+        "some",
+        "there are many",
+        "there are several",
+        "there are various",
+        "it varies",
+        "varies",
+        "depends on",
+        "based on the",
+        "according to the",
+        "in the context",
+        "contextual",
+        "context-dependent",
+        "situational",
+        "case-by-case",
+        "depends on context",
+        "depends on the situation"
+    ]
+    
+    for pattern in generic_answers:
+        if pattern in answer_lower:
             return True
     
     # Check if answer is too short (less than 2 characters)
     if len(answer_lower) < 2:
+        return True
+    
+    # Check if answer is just common words
+    if answer_lower in ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'up', 'out', 'down', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 'can', 'will', 'just', 'should', 'now']:
         return True
     
     return False
@@ -318,24 +447,35 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer, max_retrie
             # Clean up the answer using the same direct extraction logic
             cleaned_answer = extract_answer_direct(decoded_answer, question)
             
-            # Validate the answer
+            # Validate the answer much more strictly
             if cleaned_answer and len(cleaned_answer) > 1:
+                # First check if the cleaned answer itself is vague
+                if is_vague_or_non_answer(cleaned_answer, question):
+                    continue  # Try next attempt
+                
                 # Check if it's a reasonable extraction
                 if (len(cleaned_answer.split()) <= 6 and  # Allow up to 6 words
                     not any(phrase in cleaned_answer.lower() for phrase in [
-                        "extract", "answer from", "question", "response", "text:", "main"
+                        "extract", "answer from", "question", "response", "text:", "main", "brief"
                     ]) and
                     not cleaned_answer.startswith('Q:') and
                     not cleaned_answer.startswith('A:') and
-                    not is_vague_or_non_answer(cleaned_answer, question)):
+                    not cleaned_answer.startswith('The ') and  # Often indicates incomplete extraction
+                    not cleaned_answer.startswith('It ') and   # Often indicates incomplete extraction
+                    not cleaned_answer.startswith('This ') and # Often indicates incomplete extraction
+                    not cleaned_answer.startswith('That ')):   # Often indicates incomplete extraction
                     
-                    # Check if answer words appear in original response (less strict)
+                    # Check if answer words appear in original response (stricter)
                     answer_words = set(cleaned_answer.lower().split())
                     response_words = set(model_answer.lower().split())
                     
-                    # If at least one word matches, accept it
-                    if len(answer_words.intersection(response_words)) > 0:
-                        return cleaned_answer
+                    # Require at least 60% of answer words to be in original response
+                    if len(answer_words) > 0:
+                        overlap = len(answer_words.intersection(response_words))
+                        overlap_ratio = overlap / len(answer_words)
+                        
+                        if overlap_ratio >= 0.6:  # At least 60% overlap
+                            return cleaned_answer
             
         except Exception as e:
             print(f"LLM extraction attempt {attempt + 1} failed: {e}")
