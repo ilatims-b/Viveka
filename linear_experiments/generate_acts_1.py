@@ -1,6 +1,8 @@
 import torch
 import torch as t
-from transformers import AutoTokenizer, AutoModelForCausalLM, LlamaTokenizer, LlamaForCausalLM
+# MODIFIED: Import StoppingCriteria for robust stopping
+from transformers import (AutoTokenizer, AutoModelForCausalLM, LlamaTokenizer,
+                          LlamaForCausalLM, StoppingCriteria, StoppingCriteriaList)
 import argparse
 import pandas as pd
 from tqdm import tqdm
@@ -8,10 +10,27 @@ import os
 import glob
 from thefuzz import process, fuzz
 
-# --- User-provided helper functions ---
+# --- NEW: Custom StoppingCriteria Class ---
+class StopOnTokens(StoppingCriteria):
+    """
+    A custom StoppingCriteria that stops generation when any of the specified
+    stop token IDs are generated.
+    """
+    def __init__(self, stop_ids: list):
+        super().__init__()
+        self.stop_ids = stop_ids
 
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
+        # Check if the last generated token is in the stop list
+        if input_ids[0][-1] in self.stop_ids:
+            return True
+        return False
+
+# --- User-provided helper functions ---
+# MODIFIED: generate function now accepts 'stopping_criteria'
 def generate(model_input, model, model_name, do_sample=False, output_scores=False, temperature=1.0, top_k=50, top_p=1.0,
-             max_new_tokens=100, stop_token_id=None, tokenizer=None, output_hidden_states=False, additional_kwargs=None):
+             max_new_tokens=100, stop_token_id=None, tokenizer=None, output_hidden_states=False, additional_kwargs=None,
+             stopping_criteria=None):
     if stop_token_id is not None: eos_token_id = stop_token_id
     else: eos_token_id = None
     
@@ -20,13 +39,14 @@ def generate(model_input, model, model_name, do_sample=False, output_scores=Fals
                                   output_scores=output_scores,
                                   return_dict_in_generate=True, do_sample=do_sample,
                                   temperature=temperature, top_k=top_k, top_p=top_p, eos_token_id=eos_token_id,
+                                  stopping_criteria=stopping_criteria, # Pass the criteria here
                                   **(additional_kwargs or {}))
     return model_output
 
 def tokenize(prompt, tokenizer, model_name, tokenizer_args=None):
-    if 'instruct' in model_name.lower():
+    if 'instruct' in model_name.lower() or 'gemma-2' in model_name.lower():
         messages = [{"role": "user", "content": prompt}]
-        model_input = tokenizer.apply_chat_template(messages, return_tensors="pt", **(tokenizer_args or {})).to('cuda')
+        model_input = tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt").to('cuda')
     else:
         model_input = tokenizer(prompt, return_tensors='pt', **(tokenizer_args or {}))
         if "input_ids" in model_input:
@@ -35,24 +55,26 @@ def tokenize(prompt, tokenizer, model_name, tokenizer_args=None):
 
 # --- Prompt Preprocessing ---
 def create_prompts(statements, model_name):
-    if 'instruct' in model_name.lower():
+    if 'instruct' in model_name.lower() or 'gemma-2' in model_name.lower():
         return statements
     else:
         return [f"Q: {s}\nA:" for s in statements]
 
+# MODIFIED: generate_model_answers now accepts 'stopping_criteria'
 def generate_model_answers(data, model, tokenizer, device, model_name, do_sample=False,
-                           temperature=1.0, top_p=1.0, max_new_tokens=100, stop_token_id=None, verbose=False):
+                           temperature=1.0, top_p=1.0, max_new_tokens=100, stop_token_id=None, verbose=False,
+                           stopping_criteria=None):
     all_textual_answers = []
     all_input_output_ids = []
     
     for prompt in data:
         model_input = tokenize(prompt, tokenizer, model_name)
         with torch.no_grad():
-            # The stop_token_id is now passed to the generate helper
             model_output = generate(model_input, model, model_name, do_sample=do_sample,
                                     max_new_tokens=max_new_tokens,
                                     top_p=top_p, temperature=temperature,
-                                    stop_token_id=stop_token_id, tokenizer=tokenizer)
+                                    stop_token_id=stop_token_id, tokenizer=tokenizer,
+                                    stopping_criteria=stopping_criteria) # Pass criteria to helper
         
         answer = tokenizer.decode(model_output['sequences'][0][len(model_input[0]):], skip_special_tokens=True)
         all_textual_answers.append(answer)
@@ -91,7 +113,7 @@ def _cleanup_batched_answer(decoded_output, model_name):
     for line in answer_part.strip().split('\n'):
         cleaned_line = line.strip()
         if cleaned_line: return cleaned_line.split("(")[0].strip().strip(".")
-    return None # Return None instead of "" for clarity when no answer is found
+    return None
 
 def check_correctness(model_answer, correct_answers_list):
     if isinstance(correct_answers_list, str):
@@ -130,7 +152,7 @@ def find_exact_answer_simple(model_answer: str, correct_answer):
 
 def extract_answer_with_llm(question, model_answer, model, tokenizer):
     prompt = _create_extraction_prompt(question, model_answer)
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(model.device)
+    inputs = tokenize(prompt, tokenizer, model.name_or_path)
     with t.no_grad():
         outputs = model.generate(**inputs, max_new_tokens=30, pad_token_id=tokenizer.eos_token_id)
     decoded_output = tokenizer.decode(outputs[0], skip_special_tokens=False)
@@ -187,7 +209,7 @@ def load_statements(dataset_name):
         raise ValueError(f"Dataset {dataset_name}.csv must have a question and an answer column.")
     return df, df[question_col].tolist(), df[label_col].tolist()
 
-# --- MODIFIED get_acts Function ---
+# --- HEAVILY MODIFIED get_acts Function ---
 def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indices, device, enable_llm_extraction=False):
     model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
     
@@ -203,13 +225,14 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
 
     prompts = create_prompts(statements, model_name)
     
-    # --- FIX: Define and pass the stop_token_id ---
-    # For Q&A, a newline is a great stop token. For general text, use tokenizer.eos_token_id
-    stop_token_id = tokenizer.encode('\n', add_special_tokens=False)[0]
+    # --- FIX: Define and use the robust StoppingCriteria ---
+    stop_tokens = ['\n', '<end_of_turn>', '<eos>']
+    stop_ids = [tokenizer.encode(st, add_special_tokens=False)[-1] for st in stop_tokens]
+    stopping_criteria = StoppingCriteriaList([StopOnTokens(stop_ids)])
     
     all_model_answers_raw, all_generated_ids = generate_model_answers(
         prompts, model, tokenizer, device, model_name, max_new_tokens=64,
-        stop_token_id=stop_token_id
+        stopping_criteria=stopping_criteria # Pass the new criteria here
     )
 
     acts = {2*l: [] for l in layer_indices}
