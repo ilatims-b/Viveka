@@ -27,7 +27,6 @@ class StopOnTokens(StoppingCriteria):
         return False
 
 # --- User-provided helper functions ---
-# MODIFIED: generate function now accepts 'stopping_criteria'
 def generate(model_input, model, model_name, do_sample=False, output_scores=False, temperature=1.0, top_k=50, top_p=1.0,
              max_new_tokens=100, stop_token_id=None, tokenizer=None, output_hidden_states=False, additional_kwargs=None,
              stopping_criteria=None):
@@ -39,28 +38,43 @@ def generate(model_input, model, model_name, do_sample=False, output_scores=Fals
                                   output_scores=output_scores,
                                   return_dict_in_generate=True, do_sample=do_sample,
                                   temperature=temperature, top_k=top_k, top_p=top_p, eos_token_id=eos_token_id,
-                                  stopping_criteria=stopping_criteria, # Pass the criteria here
+                                  stopping_criteria=stopping_criteria,
                                   **(additional_kwargs or {}))
     return model_output
 
+# MODIFIED: Corrected the logic to only use apply_chat_template for instruct models.
 def tokenize(prompt, tokenizer, model_name, tokenizer_args=None):
-    if 'instruct' in model_name.lower() or 'gemma-2' in model_name.lower():
+    # This function now correctly handles instruct vs. base models.
+    # The `apply_chat_template` is only for models that have it (instruct/chat versions).
+    if 'instruct' in model_name.lower() or 'it' in model_name.lower():
         messages = [{"role": "user", "content": prompt}]
+        # Using `add_generation_prompt=True` is best practice here
         model_input = tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt").to('cuda')
     else:
-        model_input = tokenizer(prompt, return_tensors='pt', **(tokenizer_args or {}))
+        # For base models, we just tokenize the pre-formatted prompt.
+        model_input = tokenizer(prompt, return_tensors='pt', **(tokenizer_args or {})).to('cuda')
         if "input_ids" in model_input:
-            model_input = model_input["input_ids"].to('cuda')
+            model_input = model_input["input_ids"] # Return just the tensor
     return model_input
 
-# --- Prompt Preprocessing ---
+# MODIFIED: This now applies the correct manual prompt format for base Gemma models.
 def create_prompts(statements, model_name):
-    if 'instruct' in model_name.lower() or 'gemma-2' in model_name.lower():
+    """Applies the correct prompt format based on the model type."""
+    mn_lower = model_name.lower()
+    
+    # Case 1: Instruct/Chat models (let tokenizer handle it)
+    if 'instruct' in mn_lower or 'it' in mn_lower:
         return statements
+        
+    # Case 2: Gemma base models (apply manual template)
+    elif 'gemma' in mn_lower:
+        return [f"<start_of_turn>user\n{s}<end_of_turn>\n<start_of_turn>model\n" for s in statements]
+        
+    # Case 3: Other base models (like Llama-2-hf)
     else:
         return [f"Q: {s}\nA:" for s in statements]
 
-# MODIFIED: generate_model_answers now accepts 'stopping_criteria'
+
 def generate_model_answers(data, model, tokenizer, device, model_name, do_sample=False,
                            temperature=1.0, top_p=1.0, max_new_tokens=100, stop_token_id=None, verbose=False,
                            stopping_criteria=None):
@@ -74,7 +88,7 @@ def generate_model_answers(data, model, tokenizer, device, model_name, do_sample
                                     max_new_tokens=max_new_tokens,
                                     top_p=top_p, temperature=temperature,
                                     stop_token_id=stop_token_id, tokenizer=tokenizer,
-                                    stopping_criteria=stopping_criteria) # Pass criteria to helper
+                                    stopping_criteria=stopping_criteria)
         
         answer = tokenizer.decode(model_output['sequences'][0][len(model_input[0]):], skip_special_tokens=True)
         all_textual_answers.append(answer)
@@ -154,7 +168,7 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer):
     prompt = _create_extraction_prompt(question, model_answer)
     inputs = tokenize(prompt, tokenizer, model.name_or_path)
     with t.no_grad():
-        outputs = model.generate(**inputs, max_new_tokens=30, pad_token_id=tokenizer.eos_token_id)
+        outputs = model.generate(inputs, max_new_tokens=30, pad_token_id=tokenizer.eos_token_id)
     decoded_output = tokenizer.decode(outputs[0], skip_special_tokens=False)
     model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'gemma'
     exact_answer = _cleanup_batched_answer(decoded_output, model_name)
@@ -209,7 +223,6 @@ def load_statements(dataset_name):
         raise ValueError(f"Dataset {dataset_name}.csv must have a question and an answer column.")
     return df, df[question_col].tolist(), df[label_col].tolist()
 
-# --- HEAVILY MODIFIED get_acts Function ---
 def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indices, device, enable_llm_extraction=False):
     model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
     
@@ -225,14 +238,14 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
 
     prompts = create_prompts(statements, model_name)
     
-    # --- FIX: Define and use the robust StoppingCriteria ---
     stop_tokens = ['\n', '<end_of_turn>', '<eos>']
-    stop_ids = [tokenizer.encode(st, add_special_tokens=False)[-1] for st in stop_tokens]
-    stopping_criteria = StoppingCriteriaList([StopOnTokens(stop_ids)])
+    # Use a set for efficient lookup
+    stop_ids = set([tokenizer.encode(st, add_special_tokens=False)[-1] for st in stop_tokens])
+    stopping_criteria = StoppingCriteriaList([StopOnTokens(list(stop_ids))])
     
     all_model_answers_raw, all_generated_ids = generate_model_answers(
         prompts, model, tokenizer, device, model_name, max_new_tokens=64,
-        stopping_criteria=stopping_criteria # Pass the new criteria here
+        stopping_criteria=stopping_criteria
     )
 
     acts = {2*l: [] for l in layer_indices}
