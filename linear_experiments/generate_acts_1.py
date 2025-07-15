@@ -290,7 +290,7 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
         if not exact_answer_str and enable_llm_extraction:
             exact_answer_str = extract_answer_with_llm(
             stmt, model_answer_text, model, tokenizer, stopping_criteria)
-        batch_exact_answers.append(exact_answer_str)
+        
         batch_exact_answers.append(exact_answer_str)
         
         if not exact_answer_str:
