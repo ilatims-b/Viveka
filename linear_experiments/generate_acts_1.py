@@ -98,6 +98,7 @@ def generate_model_answers(data, model, tokenizer, device, model_name, do_sample
 # --- Other Helper Functions ---
 def _create_extraction_prompt(raw_question, model_answer):
     return f"""
+        <start_of_turn>user
         Extract the exact answer from the long answer. If the long answer doesn't answer the question, return “NO ANSWER.” Ignore factual correctness; extract what appears most relevant.
 
         Examples:
@@ -112,8 +113,10 @@ def _create_extraction_prompt(raw_question, model_answer):
         Q: What is the capital of the moon?
         A: The moon does not have a capital city as it is not a country.
         Exact answer: NO ANSWER
+        <end_of_turn>
 
         Now extract for this:
+        <start_of_turn>model
         Q: {raw_question}
         A: {model_answer}
         Exact answer:
