@@ -68,11 +68,11 @@ def create_prompts(statements, model_name):
         
     # Case 2: Gemma base models (apply manual template)
     elif 'gemma' in mn_lower:
-        return [f"<start_of_turn>user\n{s}<end_of_turn>\n<start_of_turn>model\n" for s in statements]
+        return [f"<start_of_turn>user\n Q:{s}<end_of_turn>\n<start_of_turn>model\nA:" for s in statements]
         
     # Case 3: Other base models (like Llama-2-hf)
     else:
-        return [f"Q: {s}\nA:" for s in statements]
+        return [f"Q:<start_of_turn>user\n{s}<end_of_turn>\n<start_of_turn>model\nA:" for s in statements]
 
 
 def generate_model_answers(data, model, tokenizer, device, model_name, do_sample=False,
