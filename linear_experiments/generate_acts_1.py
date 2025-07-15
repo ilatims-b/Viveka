@@ -8,71 +8,60 @@ import os
 import glob
 from thefuzz import process, fuzz
 
-# --- NEW: User-provided helper functions ---
+# --- User-provided helper functions ---
 
 def generate(model_input, model, model_name, do_sample=False, output_scores=False, temperature=1.0, top_k=50, top_p=1.0,
              max_new_tokens=100, stop_token_id=None, tokenizer=None, output_hidden_states=False, additional_kwargs=None):
-    """
-    Generates token sequences from a model input, with extensive customization options.
-    """
-    if stop_token_id is not None:
-        eos_token_id = stop_token_id
-    else:
-        eos_token_id = None
+    if stop_token_id is not None: eos_token_id = stop_token_id
+    else: eos_token_id = None
     
-    # Corrected a syntax error in the original provided line: removed one closing parenthesis.
     model_output = model.generate(model_input,
                                   max_new_tokens=max_new_tokens, output_hidden_states=output_hidden_states,
                                   output_scores=output_scores,
                                   return_dict_in_generate=True, do_sample=do_sample,
                                   temperature=temperature, top_k=top_k, top_p=top_p, eos_token_id=eos_token_id,
                                   **(additional_kwargs or {}))
-
     return model_output
 
 def tokenize(prompt, tokenizer, model_name, tokenizer_args=None):
-    """
-    Tokenizes a prompt, applying a chat template if the model is an "instruct" version.
-    """
     if 'instruct' in model_name.lower():
-        messages = [
-            {"role": "user", "content": prompt}
-        ]
-        # The model_input is moved to cuda within this function.
+        messages = [{"role": "user", "content": prompt}]
         model_input = tokenizer.apply_chat_template(messages, return_tensors="pt", **(tokenizer_args or {})).to('cuda')
-    else:  # non-instruct model
+    else:
         model_input = tokenizer(prompt, return_tensors='pt', **(tokenizer_args or {}))
         if "input_ids" in model_input:
             model_input = model_input["input_ids"].to('cuda')
     return model_input
 
-# --- Main Answer Generation Function (uses new helpers) ---
+# --- NEW FUNCTION: Prompt Preprocessing ---
+def create_prompts(statements, model_name):
+    """Applies Q&A formatting for base models, leaves instruct prompts unchanged."""
+    if 'instruct' in model_name.lower():
+        # Instruct models handle formatting via chat templates in the tokenize function
+        return statements
+    else:
+        # Base models need explicit Q: A: formatting
+        return [f"Q: {s}\nA:" for s in statements]
 
 def generate_model_answers(data, model, tokenizer, device, model_name, do_sample=False,
                            temperature=1.0, top_p=1.0, max_new_tokens=100, stop_token_id=None, verbose=False):
-    """Generates answers for a list of prompts."""
     all_textual_answers = []
     all_input_output_ids = []
     
     for prompt in data:
-        # The new tokenize function handles device placement. The 'device' arg is unused but kept for compatibility.
         model_input = tokenize(prompt, tokenizer, model_name)
         with torch.no_grad():
-            # The new generate function returns a dict-like object directly.
             model_output = generate(model_input, model, model_name, do_sample=do_sample,
                                     max_new_tokens=max_new_tokens,
                                     top_p=top_p, temperature=temperature,
                                     stop_token_id=stop_token_id, tokenizer=tokenizer)
         
-        # Accessing 'sequences' from the ModelOutput object works like a dictionary.
         answer = tokenizer.decode(model_output['sequences'][0][len(model_input[0]):], skip_special_tokens=True)
         all_textual_answers.append(answer)
         all_input_output_ids.append(model_output['sequences'][0].cpu())
-
     return all_textual_answers, all_input_output_ids
 
 # --- Other Helper Functions (Unchanged) ---
-
 def check_correctness(model_answer, correct_answers_list):
     if isinstance(correct_answers_list, str):
         try: labels_ = eval(correct_answers_list)
@@ -197,11 +186,9 @@ def load_statements(dataset_name):
     return df, df[question_col].tolist(), df[label_col].tolist()
 
 # --- MODIFIED get_acts Function ---
-
 def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indices, device, enable_llm_extraction=False):
-    """
-    Attaches hooks, gets activations, checks correctness, and returns all results.
-    """
+    model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
+    
     # 1. Set up hooks
     attn_hooks, mlp_hooks = {}, {}
     handles = []
@@ -213,20 +200,23 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
         ])
         attn_hooks[l], mlp_hooks[l] = hook_a, hook_m
 
-    # 2. Generate all model answers for the batch upfront
-    model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
+    # 2. MODIFIED: Create formatted prompts and then generate answers
+    prompts = create_prompts(statements, model_name)
     all_model_answers_raw, all_generated_ids = generate_model_answers(
-        statements, model, tokenizer, device, model_name, max_new_tokens=64
+        prompts, model, tokenizer, device, model_name, max_new_tokens=64
     )
 
     # 3. Process the generated answers to get activations
     acts = {2*l: [] for l in layer_indices}
     acts.update({2*l + 1: [] for l in layer_indices})
-    batch_correctness, batch_model_answers = [], []
+    # MODIFIED: Add list to collect exact answers
+    batch_correctness, batch_model_answers, batch_exact_answers = [], [], []
 
-    iterator = zip(statements, correct_answers, all_model_answers_raw, all_generated_ids)
-    for stmt, correct_ans, model_answer_text_raw, generated_ids in tqdm(iterator, desc="Processing batch", total=len(statements), leave=False):
+    # MODIFIED: Iterate over statements AND prompts
+    iterator = zip(statements, prompts, correct_answers, all_model_answers_raw, all_generated_ids)
+    for stmt, prompt, correct_ans, model_answer_text_raw, generated_ids in tqdm(iterator, desc="Processing batch", total=len(statements), leave=False):
         
+        # The cleanup logic for repeated questions is now less critical but kept as a safeguard.
         model_answer_text = model_answer_text_raw.strip()
         if model_answer_text.lower().startswith(stmt.lower()):
             model_answer_text = model_answer_text[len(stmt):].lstrip(":. ").strip()
@@ -235,20 +225,21 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
         is_correct = check_correctness(model_answer_text, correct_ans)
         batch_correctness.append(is_correct)
         
+        # Find and store the exact answer string
         exact_answer_str = find_exact_answer_simple(model_answer_text, correct_ans)
         if not exact_answer_str and enable_llm_extraction:
             exact_answer_str = extract_answer_with_llm(stmt, model_answer_text, model, tokenizer)
+        batch_exact_answers.append(exact_answer_str) # MODIFIED: Store the result
         
         if not exact_answer_str:
             continue
 
-        # MODIFIED: Call new tokenize function, passing model_name and removing .to(device)
-        input_ids = tokenize(stmt, tokenizer, model_name)
+        # Use the formatted prompt to get the correct input_ids for token indexing
+        input_ids = tokenize(prompt, tokenizer, model_name)
         answer_token_indices = find_answer_token_indices_by_string_matching(tokenizer, generated_ids, input_ids, exact_answer_str)
         if answer_token_indices is None:
             continue
         
-        # This second forward pass is CRUCIAL to trigger the hooks and get activations
         with t.no_grad():
             model(generated_ids.unsqueeze(0).to(device))
 
@@ -264,23 +255,18 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
 
     # 4. Clean up and return results
     for k in list(acts.keys()):
-        if acts[k]:
-            acts[k] = t.stack(acts[k]).cpu().float()
-        else:
-            del acts[k]
+        if acts[k]: acts[k] = t.stack(acts[k]).cpu().float()
+        else: del acts[k]
 
-    for h in handles:
-        h.remove()
+    for h in handles: h.remove()
         
-    return acts, batch_correctness, batch_model_answers
+    # MODIFIED: Return the collected exact answers
+    return acts, batch_correctness, batch_model_answers, batch_exact_answers
 
-
-# --- Main Execution Block (Unchanged) ---
-
+# --- Main Execution Block ---
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Extract activations and check correctness from Hugging Face models.")
     parser.add_argument('--model_repo_id', type=str, required=True, help='The exact Hugging Face Hub repository ID (e.g., google/gemma-2b-it)')
-    
     parser.add_argument('--layers', nargs='+', required=True, type=int, help='Layer indices to extract from (-1 for all)')
     parser.add_argument('--datasets', nargs='+', required=True, help='Dataset names (without .csv)')
     parser.add_argument('--output_dir', default='acts_output', help='Root directory for saving all outputs')
@@ -294,12 +280,10 @@ if __name__ == '__main__':
         ds = [os.path.relpath(fp, 'datasets').replace('.csv', '') for fp in glob.glob('datasets/**/*.csv', recursive=True)]
 
     t.set_grad_enabled(False)
-
     tokenizer, model, layer_modules = load_model(args.model_repo_id, args.device)
     
     li = args.layers
-    if -1 in li:
-        li = list(range(len(layer_modules)))
+    if -1 in li: li = list(range(len(layer_modules)))
 
     for dataset in ds:
         print(f"\n--- Processing dataset: {dataset} ---")
@@ -313,7 +297,8 @@ if __name__ == '__main__':
         save_base = os.path.join(args.output_dir, safe_repo_name, dataset)
         os.makedirs(save_base, exist_ok=True)
         
-        all_correctness_results, all_model_answers = [], []
+        # MODIFIED: Add list for exact answers
+        all_correctness_results, all_model_answers, all_exact_answers = [], [], []
         
         batch_size = 25
         batch_count = 0 
@@ -321,13 +306,15 @@ if __name__ == '__main__':
             batch_stmts = stmts[start:start + batch_size]
             batch_correct_ans = correct_answers[start:start + batch_size]
             
-            acts, batch_correctness, batch_model_ans = get_acts(
+            # MODIFIED: Unpack the new exact_answers list
+            acts, batch_correctness, batch_model_ans, batch_exact_ans = get_acts(
                 batch_stmts, batch_correct_ans, tokenizer, model, layer_modules, li, args.device, 
                 enable_llm_extraction=args.enable_llm_extraction
             )
             
             all_correctness_results.extend(batch_correctness)
             all_model_answers.extend(batch_model_ans)
+            all_exact_answers.extend(batch_exact_ans) # MODIFIED: Collect across batches
 
             if acts:
                 for pseudo, tensor in acts.items():
@@ -340,11 +327,13 @@ if __name__ == '__main__':
                 break
         
         num_results = len(all_model_answers)
+        # MODIFIED: Logic to add the new column before saving
         if args.early_stop:
             if num_results > 0:
                 df_sub = df.iloc[:num_results].copy()
                 df_sub['model_answer'] = all_model_answers
                 df_sub['automatic_correctness'] = all_correctness_results
+                df_sub['exact_answer'] = all_exact_answers # Add new column
                 
                 output_csv_path = os.path.join(save_base, f"{dataset}_SUBSAMPLED_with_results.csv")
                 df_sub.to_csv(output_csv_path, index=False)
@@ -354,6 +343,7 @@ if __name__ == '__main__':
         elif num_results == len(df):
             df['model_answer'] = all_model_answers
             df['automatic_correctness'] = all_correctness_results
+            df['exact_answer'] = all_exact_answers # Add new column
             
             output_csv_path = os.path.join(save_base, f"{dataset}_with_results.csv")
             df.to_csv(output_csv_path, index=False)
