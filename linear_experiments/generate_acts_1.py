@@ -126,8 +126,6 @@ class Hook:
     def __call__(self, module, module_inputs, module_outputs):
         self.out = module_outputs[0] if isinstance(module_outputs, tuple) else module_outputs
 
-# --- MODIFIED load_model Function ---
-
 def load_model(model_repo_id: str, device: str):
     """
     Loads the primary model and tokenizer directly from the Hugging Face Hub
@@ -162,7 +160,7 @@ def load_statements(dataset_name):
         raise ValueError(f"Dataset {dataset_name}.csv must have a question and an answer column.")
     return df, df[question_col].tolist(), df[label_col].tolist()
 
-# --- Main Activation & Correctness Logic (Unchanged) ---
+# --- MODIFIED Activation & Correctness Logic ---
 
 def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indices, device, enable_llm_extraction=False):
     """
@@ -191,6 +189,11 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
         
         model_answer_text = tokenizer.decode(generated_ids[input_ids.shape[1]:], skip_special_tokens=True).strip()
         
+        # --- MODIFIED: Clean the model answer ---
+        # Some models repeat the question in the answer. This removes the repetition.
+        if model_answer_text.lower().startswith(stmt.lower()):
+            model_answer_text = model_answer_text[len(stmt):].lstrip(":. ").strip()
+
         is_correct = check_correctness(model_answer_text, correct_ans)
         batch_model_answers.append(model_answer_text)
         batch_correctness.append(is_correct)
@@ -234,7 +237,6 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Extract activations and check correctness from Hugging Face models.")
-    # MODIFIED: Simplified model argument
     parser.add_argument('--model_repo_id', type=str, required=True, help='The exact Hugging Face Hub repository ID (e.g., google/gemma-2b-it)')
     
     # Other arguments
@@ -243,6 +245,8 @@ if __name__ == '__main__':
     parser.add_argument('--output_dir', default='acts_output', help='Root directory for saving all outputs')
     parser.add_argument('--device', default='cuda' if t.cuda.is_available() else 'cpu', help='Device to run on (cpu or cuda)')
     parser.add_argument('--enable_llm_extraction', action='store_true', help='Enable LLM-based answer extraction as a fallback.')
+    # NEW: Add early stop argument
+    parser.add_argument('--early_stop', action='store_true', help='Process only two batches and save a subsampled CSV for quick checks.')
     args = parser.parse_args()
 
     ds = args.datasets
@@ -251,7 +255,6 @@ if __name__ == '__main__':
 
     t.set_grad_enabled(False)
 
-    # MODIFIED: Simplified call to load_model
     tokenizer, model, layer_modules = load_model(args.model_repo_id, args.device)
     
     li = args.layers
@@ -266,7 +269,6 @@ if __name__ == '__main__':
             print(f"Skipping dataset '{dataset}': {e}")
             continue
             
-        # MODIFIED: Create a safe directory name from the repo ID
         safe_repo_name = args.model_repo_id.replace("/", "__")
         save_base = os.path.join(args.output_dir, safe_repo_name, dataset)
         os.makedirs(save_base, exist_ok=True)
@@ -274,6 +276,8 @@ if __name__ == '__main__':
         all_correctness_results, all_model_answers = [], []
         
         batch_size = 25
+        # NEW: Batch counter for early stopping
+        batch_count = 0 
         for start in tqdm(range(0, len(stmts), batch_size), desc=f"Overall progress for {dataset}"):
             batch_stmts = stmts[start:start + batch_size]
             batch_correct_ans = correct_answers[start:start + batch_size]
@@ -286,19 +290,39 @@ if __name__ == '__main__':
             all_correctness_results.extend(batch_correctness)
             all_model_answers.extend(batch_model_ans)
 
-            if not acts:
-                pass
-            else:
+            if acts:
                 for pseudo, tensor in acts.items():
                     filename = os.path.join(save_base, f"layer_{pseudo}_{start}.pt")
                     t.save(tensor, filename)
+            
+            # NEW: Early stopping logic
+            batch_count += 1
+            if args.early_stop and batch_count >= 2:
+                print(f"\nEarly stopping after {batch_count} batches.")
+                break
         
-        if len(all_correctness_results) == len(df):
+        # --- MODIFIED: CSV saving logic to handle early stopping ---
+        num_results = len(all_model_answers)
+        if args.early_stop:
+            # Create and save a subsampled dataframe
+            if num_results > 0:
+                df_sub = df.iloc[:num_results].copy()
+                df_sub['model_answer'] = all_model_answers
+                df_sub['automatic_correctness'] = all_correctness_results
+                
+                output_csv_path = os.path.join(save_base, f"{dataset}_SUBSAMPLED_with_results.csv")
+                df_sub.to_csv(output_csv_path, index=False)
+                print(f"✅ Early stop: Saved subsampled results to: {output_csv_path}")
+            else:
+                print("⚠️ Warning: No results generated during early stop run. No CSV saved.")
+        elif num_results == len(df):
+            # Original logic for saving the full dataframe
             df['model_answer'] = all_model_answers
             df['automatic_correctness'] = all_correctness_results
             
             output_csv_path = os.path.join(save_base, f"{dataset}_with_results.csv")
             df.to_csv(output_csv_path, index=False)
-            print(f"✅ Saved dataset with results to: {output_csv_path}")
+            print(f"✅ Saved full dataset with results to: {output_csv_path}")
         else:
-            print(f"⚠️ Warning: Mismatch between results ({len(all_correctness_results)}) and dataset rows ({len(df)}). CSV not saved.")
+            # Original warning for mismatches in a full run
+            print(f"⚠️ Warning: Mismatch between results ({num_results}) and dataset rows ({len(df)}). CSV not saved.")
