@@ -94,14 +94,38 @@ def _cleanup_extracted_answer(decoded_output):
     # Remove stop tokens and artifacts
     tokens_to_remove = [
         ".</s>", "</s>", ".<|eot_id|>", "<|eot_id|>", ".<eos>", "<eos>", 
-        "<end_of_turn>", "\n", "Answer:", "A:", "The answer is", "The answer:"
+        "<end_of_turn>", "Answer:", "A:", "The answer is", "The answer:"
     ]
     
     for token in tokens_to_remove:
         answer = answer.replace(token, "")
     
-    # Take only the first meaningful part
-    answer = answer.strip()
+    # FIXED: Remove any lines that start with "Q:" or contain question patterns
+    lines = answer.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        line = line.strip()
+        # Skip lines that look like questions or prompts
+        if (line.startswith('Q:') or 
+            line.startswith('Question:') or 
+            line.startswith('Extract') or
+            line.startswith('Response:') or
+            'What are' in line or
+            'What is' in line or
+            'What was' in line or
+            'Who is' in line or
+            'Who was' in line or
+            'Where is' in line or
+            'Where was' in line):
+            continue
+        if line:  # Only add non-empty lines
+            cleaned_lines.append(line)
+    
+    # Take the first meaningful line
+    if cleaned_lines:
+        answer = cleaned_lines[0]
+    else:
+        answer = ""
     
     # Remove parenthetical information
     if "(" in answer:
@@ -159,28 +183,16 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer, max_retrie
     model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
     mn_lower = model_name.lower()
     
-    # Try different prompt strategies
+    # IMPROVED: More focused prompts that avoid repetition
     prompts_to_try = [
-        # Simple direct prompt
-        f"Q: {question}\nA: {model_answer}\n\nWhat is the exact answer? (respond with just the answer):",
+        # Very direct instruction
+        f"Extract the key answer from this response in 1-3 words only:\n\nQuestion: {question}\nResponse: {model_answer}\n\nKey answer:",
         
-        # Few-shot prompt
-        f"""Extract the answer:
-
-Q: What is the capital of France?
-A: The capital of France is Paris, which is located in the northern part of the country.
-Answer: Paris
-
-Q: Who wrote Romeo and Juliet?
-A: Romeo and Juliet was written by William Shakespeare in the 1590s.
-Answer: William Shakespeare
-
-Q: {question}
-A: {model_answer}
-Answer:""",
+        # Simple completion format
+        f"Complete this:\n\nQ: {question}\nA: {model_answer}\n\nThe main answer is:",
         
-        # Direct instruction
-        f"Question: {question}\nResponse: {model_answer}\n\nExtract only the key answer (1-3 words):"
+        # Pattern-based extraction
+        f"Find the answer:\n{model_answer}\n\nAnswer (1-3 words):"
     ]
     
     for attempt, base_prompt in enumerate(prompts_to_try):
@@ -205,7 +217,7 @@ Answer:""",
                 inputs = tokenizer(formatted_prompt, return_tensors="pt").to(model.device)
             
             # Create stopping criteria
-            stop_tokens = ['<end_of_turn>', '<eos>', '</s>', '<|eot_id|>', '\n\n']
+            stop_tokens = ['<end_of_turn>', '<eos>', '</s>', '<|eot_id|>', '\n\n', '\n']
             stop_ids = []
             for st in stop_tokens:
                 try:
@@ -217,9 +229,9 @@ Answer:""",
             
             stopping_criteria = StoppingCriteriaList([StopOnTokens(list(set(stop_ids)))])
             
-            # Generate with different parameters for each attempt
-            temp = 0.1 if attempt == 0 else 0.3
-            max_tokens = 20 if attempt == 0 else 30
+            # Generate with more restrictive parameters
+            temp = 0.1 if attempt == 0 else 0.2
+            max_tokens = 15 if attempt == 0 else 20  # Even more restrictive
             
             with t.no_grad():
                 outputs = model.generate(
@@ -229,7 +241,7 @@ Answer:""",
                     do_sample=temp > 0,
                     pad_token_id=tokenizer.eos_token_id,
                     stopping_criteria=stopping_criteria,
-                    repetition_penalty=1.1
+                    repetition_penalty=1.2  # Higher repetition penalty
                 )
             
             # Decode only new tokens
@@ -239,12 +251,15 @@ Answer:""",
             # Clean up the answer
             cleaned_answer = _cleanup_extracted_answer(decoded_answer)
             
-            # Validate the answer
+            # Validate the answer more strictly
             if cleaned_answer and len(cleaned_answer) > 0:
-                # Check if it's not just the instruction repeated
-                if not any(phrase in cleaned_answer.lower() for phrase in [
-                    "extract", "answer from", "question", "response", "ignore factual"
-                ]):
+                # Check if it's not just noise or repeated instructions
+                if (len(cleaned_answer.split()) <= 5 and  # Not too long
+                    not any(phrase in cleaned_answer.lower() for phrase in [
+                        "extract", "answer from", "question", "response", "complete", "find"
+                    ]) and
+                    not cleaned_answer.startswith('Q:') and  # Not a question
+                    not cleaned_answer.startswith('A:')):   # Not instruction format
                     return cleaned_answer
             
         except Exception as e:
