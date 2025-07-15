@@ -74,6 +74,7 @@ def check_correctness(model_answer, correct_answers_list):
     return 0
 
 def _create_extraction_prompt(raw_question, model_answer):
+    """Creates the standard f-string prompt for the LLM extractor."""
     return f"""
         Extract the exact answer from the long answer. If the long answer doesn't answer the question, return “NO ANSWER.” Ignore factual correctness; extract what appears most relevant.
 
@@ -85,6 +86,10 @@ def _create_extraction_prompt(raw_question, model_answer):
         Q: Who wrote Philosophiæ Naturalis Principia Mathematica?
         A: Albert Einstein
         Exact answer: Albert Einstein
+
+        Q: What is the capital of the moon?
+        A: The moon does not have a capital city as it is not a country.
+        Exact answer: NO ANSWER
 
         Now extract for this:
         Q: {raw_question}
