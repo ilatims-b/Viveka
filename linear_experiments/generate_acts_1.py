@@ -164,7 +164,7 @@ def find_exact_answer_simple(model_answer: str, correct_answer):
         return model_answer[found_ans_index : found_ans_index + len(found_ans)]
     return None
 
-# MODIFIED: This function now correctly formats its prompt for Gemma models.
+# MODIFIED: This function now correctly passes the attention mask to the model.
 def extract_answer_with_llm(question, model_answer, model, tokenizer):
     # 1. Create the base few-shot prompt for the extraction task.
     extraction_task_prompt = _create_extraction_prompt(question, model_answer)
@@ -173,29 +173,27 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer):
 
     # 2. Apply the correct final prompt format based on the model type.
     if 'instruct' in mn_lower or 'it' in mn_lower:
-        # For instruct models, the tokenizer's chat template handles it.
-        final_prompt = extraction_task_prompt
-        inputs = tokenize(final_prompt, tokenizer, model_name)
+        inputs = tokenize(extraction_task_prompt, tokenizer, model_name)
     else:
-        # For base models, we must manually apply the correct template.
         if 'gemma' in mn_lower:
-            # Use your successful prompt format for Gemma base models.
             final_prompt = f"<start_of_turn>user\n{extraction_task_prompt}<end_of_turn>\n<start_of_turn>model\n"
         else:
-            # Fallback for other base models like Llama.
             final_prompt = extraction_task_prompt
         # Tokenize the manually formatted prompt directly.
         inputs = tokenizer(final_prompt, return_tensors="pt").to(model.device)
 
     # 3. Generate a response for the extraction task.
     with t.no_grad():
+        # FIX: Pass the entire `inputs` dictionary using **inputs
+        # This ensures the attention_mask is included.
         outputs = model.generate(
-            inputs['input_ids'], 
+            **inputs, 
             max_new_tokens=30, 
             pad_token_id=tokenizer.eos_token_id
         )
 
     # 4. Decode *only* the newly generated tokens.
+    # The slicing needs to account for the dictionary format of `inputs`.
     new_tokens = outputs[0, inputs['input_ids'].shape[1]:]
     decoded_answer = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
