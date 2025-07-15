@@ -164,8 +164,8 @@ def find_exact_answer_simple(model_answer: str, correct_answer):
         return model_answer[found_ans_index : found_ans_index + len(found_ans)]
     return None
 
-# MODIFIED: This function now correctly passes the attention mask to the model.
-def extract_answer_with_llm(question, model_answer, model, tokenizer):
+# MODIFIED: Accepts and uses the stopping_criteria
+def extract_answer_with_llm(question, model_answer, model, tokenizer, stopping_criteria=None):
     # 1. Create the base few-shot prompt for the extraction task.
     extraction_task_prompt = _create_extraction_prompt(question, model_answer)
     model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
@@ -179,21 +179,18 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer):
             final_prompt = f"<start_of_turn>user\n{extraction_task_prompt}<end_of_turn>\n<start_of_turn>model\n"
         else:
             final_prompt = extraction_task_prompt
-        # Tokenize the manually formatted prompt directly.
         inputs = tokenizer(final_prompt, return_tensors="pt").to(model.device)
 
     # 3. Generate a response for the extraction task.
     with t.no_grad():
-        # FIX: Pass the entire `inputs` dictionary using **inputs
-        # This ensures the attention_mask is included.
         outputs = model.generate(
             **inputs, 
             max_new_tokens=30, 
-            pad_token_id=tokenizer.eos_token_id
+            pad_token_id=tokenizer.eos_token_id,
+            stopping_criteria=stopping_criteria # USE THE CRITERIA HERE
         )
 
     # 4. Decode *only* the newly generated tokens.
-    # The slicing needs to account for the dictionary format of `inputs`.
     new_tokens = outputs[0, inputs['input_ids'].shape[1]:]
     decoded_answer = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
@@ -291,7 +288,9 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
         
         exact_answer_str = find_exact_answer_simple(model_answer_text, correct_ans)
         if not exact_answer_str and enable_llm_extraction:
-            exact_answer_str = extract_answer_with_llm(stmt, model_answer_text, model, tokenizer)
+            exact_answer_str = extract_answer_with_llm(
+            stmt, model_answer_text, model, tokenizer, stopping_criteria)
+        batch_exact_answers.append(exact_answer_str)
         batch_exact_answers.append(exact_answer_str)
         
         if not exact_answer_str:
