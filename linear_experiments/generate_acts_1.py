@@ -12,6 +12,9 @@ from thefuzz import process, fuzz
 
 def generate(model_input, model, model_name, do_sample=False, output_scores=False, temperature=1.0, top_k=50, top_p=1.0,
              max_new_tokens=100, stop_token_id=None, tokenizer=None, output_hidden_states=False, additional_kwargs=None):
+    
+    stop_token_id = tokenizer.encode('\n', add_special_tokens=False)[0]
+
     if stop_token_id is not None: eos_token_id = stop_token_id
     else: eos_token_id = None
     
@@ -135,7 +138,7 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer):
     prompt = _create_extraction_prompt(question, model_answer)
     inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(model.device)
     with t.no_grad():
-        outputs = model.generate(**inputs, max_new_tokens=30, pad_token_id=tokenizer.eos_token_id)
+        outputs = model.generate(**inputs, max_new_tokens=30, pad_token_id=tokenizer.eos_token_id, eos_token_id=tokenizer.eos_token_id)
     decoded_output = tokenizer.decode(outputs[0], skip_special_tokens=False)
     model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'gemma'
     exact_answer = _cleanup_batched_answer(decoded_output, model_name)
