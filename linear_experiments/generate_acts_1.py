@@ -42,35 +42,24 @@ def generate(model_input, model, model_name, do_sample=False, output_scores=Fals
                                   **(additional_kwargs or {}))
     return model_output
 
-# MODIFIED: Corrected the logic to only use apply_chat_template for instruct models.
 def tokenize(prompt, tokenizer, model_name, tokenizer_args=None):
-    # This function now correctly handles instruct vs. base models.
-    # The `apply_chat_template` is only for models that have it (instruct/chat versions).
     if 'instruct' in model_name.lower() or 'it' in model_name.lower():
         messages = [{"role": "user", "content": prompt}]
-        # Using `add_generation_prompt=True` is best practice here
         model_input = tokenizer.apply_chat_template(messages, add_generation_prompt=True, return_tensors="pt").to('cuda')
     else:
-        # For base models, we just tokenize the pre-formatted prompt.
         model_input = tokenizer(prompt, return_tensors='pt', **(tokenizer_args or {})).to('cuda')
         if "input_ids" in model_input:
-            model_input = model_input["input_ids"] # Return just the tensor
+            model_input = model_input["input_ids"]
     return model_input
 
-# MODIFIED: This now applies the correct manual prompt format for base Gemma models.
 def create_prompts(statements, model_name):
     """Applies the correct prompt format based on the model type."""
     mn_lower = model_name.lower()
     
-    # Case 1: Instruct/Chat models (let tokenizer handle it)
     if 'instruct' in mn_lower or 'it' in mn_lower:
         return statements
-        
-    # Case 2: Gemma base models (apply manual template)
     elif 'gemma' in mn_lower:
-        return [f"<start_of_turn>user\n Q:{s}<end_of_turn>\n<start_of_turn>model\nA:" for s in statements]
-        
-    # Case 3: Other base models (like Llama-2-hf)
+        return [f"<start_of_turn>user\nQ: {s}<end_of_turn>\n<start_of_turn>model\nA:" for s in statements]
     else:
         return [f"Q:<start_of_turn>user\n{s}<end_of_turn>\n<start_of_turn>model\nA:" for s in statements]
 
@@ -96,6 +85,8 @@ def generate_model_answers(data, model, tokenizer, device, model_name, do_sample
     return all_textual_answers, all_input_output_ids
 
 # --- Other Helper Functions ---
+
+# FIXED: Removed trailing newline for more reliable extraction.
 def _create_extraction_prompt(raw_question, model_answer):
     return f"""
         Extract the exact answer from the long answer. If the long answer doesn't answer the question, return “NO ANSWER.” Ignore factual correctness; extract what appears most relevant.
@@ -116,8 +107,7 @@ def _create_extraction_prompt(raw_question, model_answer):
         Now extract for this:
         Q: {raw_question}
         A: {model_answer}
-        Exact answer:
-    """
+        Exact answer:"""
 
 def _cleanup_batched_answer(decoded_output, model_name):
     if "Exact answer:" in decoded_output: answer_part = decoded_output.split("Exact answer:")[-1]
@@ -164,7 +154,7 @@ def find_exact_answer_simple(model_answer: str, correct_answer):
         return model_answer[found_ans_index : found_ans_index + len(found_ans)]
     return None
 
-# MODIFIED: Accepts and uses the stopping_criteria
+# FIXED: Function now uses its own robust, local stopping criteria.
 def extract_answer_with_llm(question, model_answer, model, tokenizer, stopping_criteria=None):
     # 1. Create the base few-shot prompt for the extraction task.
     extraction_task_prompt = _create_extraction_prompt(question, model_answer)
@@ -181,22 +171,29 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer, stopping_c
             final_prompt = extraction_task_prompt
         inputs = tokenizer(final_prompt, return_tensors="pt").to(model.device)
 
-    # 3. Generate a response for the extraction task.
+    # 3. Create a new, local stopping criteria for this specific extraction task.
+    local_stop_tokens = ['<end_of_turn>', '<eos>', '</s>', '<|eot_id|>']
+    # We intentionally leave out '\n' to avoid premature stopping.
+    local_stop_ids = [tokenizer.encode(st, add_special_tokens=False)[-1] for st in local_stop_tokens]
+    local_stopping_criteria = StoppingCriteriaList([StopOnTokens(list(set(local_stop_ids)))])
+
+    # 4. Generate a response for the extraction task.
     with t.no_grad():
         outputs = model.generate(
             **inputs, 
             max_new_tokens=30, 
             pad_token_id=tokenizer.eos_token_id,
-            stopping_criteria=stopping_criteria # USE THE CRITERIA HERE
+            stopping_criteria=local_stopping_criteria # Use the new local criteria
         )
 
-    # 4. Decode *only* the newly generated tokens.
+    # 5. Decode *only* the newly generated tokens.
     new_tokens = outputs[0, inputs['input_ids'].shape[1]:]
     decoded_answer = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
-    # 5. Return the cleaned answer.
+    # 6. Clean up potential newlines and return.
     if decoded_answer and decoded_answer.upper() != "NO ANSWER":
-        return decoded_answer
+        # Return only the first line of the answer for safety.
+        return decoded_answer.split('\n')[0].strip()
         
     return None
 
@@ -239,9 +236,10 @@ def load_model(model_repo_id: str, device: str):
         raise AttributeError(f"Could not find layers for model {model_repo_id}. Please check the model architecture.")
     return tokenizer, model, layers
 
+# FIXED: Added encoding='utf-8' for robust file reading.
 def load_statements(dataset_name):
     path = f"datasets/{dataset_name}.csv"
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, encoding='utf-8')
     question_col = 'statement' if 'statement' in df.columns else 'raw_question'
     label_col = 'label' if 'label' in df.columns else 'correct_answer'
     if question_col not in df.columns or label_col not in df.columns:
@@ -264,7 +262,6 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
     prompts = create_prompts(statements, model_name)
     
     stop_tokens = ['\n', '<end_of_turn>', '<eos>']
-    # Use a set for efficient lookup
     stop_ids = set([tokenizer.encode(st, add_special_tokens=False)[-1] for st in stop_tokens])
     stopping_criteria = StoppingCriteriaList([StopOnTokens(list(stop_ids))])
     
@@ -289,7 +286,7 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
         exact_answer_str = find_exact_answer_simple(model_answer_text, correct_ans)
         if not exact_answer_str and enable_llm_extraction:
             exact_answer_str = extract_answer_with_llm(
-            stmt, model_answer_text, model, tokenizer, stopping_criteria)
+                stmt, model_answer_text, model, tokenizer) # No longer need to pass stopping_criteria
         
         batch_exact_answers.append(exact_answer_str)
         
@@ -322,7 +319,7 @@ def get_acts(statements, correct_answers, tokenizer, model, layers, layer_indice
         
     return acts, batch_correctness, batch_model_answers, batch_exact_answers
 
-# --- Main Execution Block (Unchanged) ---
+# --- Main Execution Block ---
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Extract activations and check correctness from Hugging Face models.")
     parser.add_argument('--model_repo_id', type=str, required=True, help='The exact Hugging Face Hub repository ID (e.g., google/gemma-2b-it)')
@@ -392,7 +389,8 @@ if __name__ == '__main__':
                 df_sub['exact_answer'] = all_exact_answers
                 
                 output_csv_path = os.path.join(save_base, f"{dataset}_SUBSAMPLED_with_results.csv")
-                df_sub.to_csv(output_csv_path, index=False)
+                # FIXED: Added encoding='utf-8' for robust file writing.
+                df_sub.to_csv(output_csv_path, index=False, encoding='utf-8')
                 print(f"✅ Early stop: Saved subsampled results to: {output_csv_path}")
             else:
                 print("⚠️ Warning: No results generated during early stop run. No CSV saved.")
@@ -402,7 +400,8 @@ if __name__ == '__main__':
             df['exact_answer'] = all_exact_answers
             
             output_csv_path = os.path.join(save_base, f"{dataset}_with_results.csv")
-            df.to_csv(output_csv_path, index=False)
+            # FIXED: Added encoding='utf-8' for robust file writing.
+            df.to_csv(output_csv_path, index=False, encoding='utf-8')
             print(f"✅ Saved full dataset with results to: {output_csv_path}")
         else:
             print(f"⚠️ Warning: Mismatch between results ({num_results}) and dataset rows ({len(df)}). CSV not saved.")
