@@ -84,142 +84,6 @@ def generate_model_answers(data, model, tokenizer, device, model_name, do_sample
         all_input_output_ids.append(model_output['sequences'][0].cpu())
     return all_textual_answers, all_input_output_ids
 
-# --- Other Helper Functions ---
-
-def _cleanup_extracted_answer(decoded_output):
-    """Clean up the extracted answer more aggressively"""
-    # Remove common artifacts
-    answer = decoded_output.strip()
-    
-    # Remove stop tokens and artifacts
-    tokens_to_remove = [
-        ".</s>", "</s>", ".<|eot_id|>", "<|eot_id|>", ".<eos>", "<eos>", 
-        "<end_of_turn>", "Answer:", "A:", "The answer is", "The answer:"
-    ]
-    
-    for token in tokens_to_remove:
-        answer = answer.replace(token, "")
-    
-    # Remove any lines that start with "Q:" or contain question patterns
-    lines = answer.split('\n')
-    cleaned_lines = []
-    for line in lines:
-        line = line.strip()
-        # Skip lines that look like questions or prompts
-        if (line.startswith('Q:') or 
-            line.startswith('Question:') or 
-            line.startswith('Extract') or
-            line.startswith('Response:') or
-            'What are' in line or
-            'What is' in line or
-            'What was' in line or
-            'Who is' in line or
-            'Who was' in line or
-            'Where is' in line or
-            'Where was' in line):
-            continue
-        if line:  # Only add non-empty lines
-            cleaned_lines.append(line)
-    
-    # Take the first meaningful line
-    if cleaned_lines:
-        answer = cleaned_lines[0]
-    else:
-        answer = ""
-    
-    # Remove parenthetical information
-    if "(" in answer:
-        answer = answer.split("(")[0].strip()
-    
-    # Remove trailing punctuation
-    answer = answer.rstrip(".,!?;:")
-    
-    # If still too long, take first few words
-    words = answer.split()
-    if len(words) > 5:
-        answer = " ".join(words[:3])
-    
-    return answer if answer else None
-
-
-def is_vague_or_non_answer(model_answer, question):
-    """
-    Check if the model answer is vague or doesn't properly answer the question
-    """
-    if not model_answer or len(model_answer.strip()) == 0:
-        return True
-    
-    answer_lower = model_answer.lower().strip()
-    
-    # Check for common non-answer patterns
-    vague_patterns = [
-        "i don't know",
-        "i'm not sure",
-        "i cannot",
-        "i can't",
-        "unable to",
-        "don't have",
-        "not available",
-        "not provided",
-        "unclear",
-        "uncertain",
-        "it depends",
-        "various",
-        "many",
-        "some",
-        "several",
-        "different",
-        "there are many",
-        "there are several",
-        "it varies",
-        "not specified",
-        "not mentioned",
-        "not clear",
-        "difficult to say",
-        "hard to say",
-        "cannot determine",
-        "depends on",
-        "based on",
-        "according to",
-        "typically",
-        "usually",
-        "generally",
-        "often",
-        "sometimes",
-        "may be",
-        "might be",
-        "could be",
-        "possibly",
-        "perhaps",
-        "likely",
-        "probably"
-    ]
-    
-    # Check if answer contains vague patterns
-    for pattern in vague_patterns:
-        if pattern in answer_lower:
-            return True
-    
-    # Check if answer is too short (less than 3 characters)
-    if len(answer_lower) < 3:
-        return True
-    
-    # Check if answer is just punctuation or common words
-    if answer_lower in ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']:
-        return True
-    
-    # Check if answer repeats the question
-    question_words = set(question.lower().split())
-    answer_words = set(answer_lower.split())
-    
-    # If more than 50% of answer words are from the question, it's likely a repeat
-    if len(answer_words) > 0:
-        overlap = len(question_words.intersection(answer_words))
-        if overlap / len(answer_words) > 0.5:
-            return True
-    
-    return False
-
 def check_correctness(model_answer, correct_answers_list):
     if isinstance(correct_answers_list, str):
         try: labels_ = eval(correct_answers_list)
@@ -255,29 +119,152 @@ def find_exact_answer_simple(model_answer: str, correct_answer):
         return model_answer[found_ans_index : found_ans_index + len(found_ans)]
     return None
 
+import re
+
+def extract_answer_direct(model_answer, question):
+    """
+    Direct extraction using patterns - much more reliable than LLM extraction
+    """
+    if not model_answer or len(model_answer.strip()) == 0:
+        return None
+    
+    answer = model_answer.strip()
+    
+    # Remove common prefixes that don't contain the answer
+    prefixes_to_remove = [
+        "The answer is ",
+        "The correct answer is ",
+        "It is ",
+        "This is ",
+        "That is ",
+        "It was ",
+        "This was ",
+        "That was "
+    ]
+    
+    for prefix in prefixes_to_remove:
+        if answer.startswith(prefix):
+            answer = answer[len(prefix):]
+            break
+    
+    # Stop at common sentence endings
+    stop_patterns = [
+        r'\.',  # Period
+        r'\n',  # Newline
+        r' is ',  # " is "
+        r' was ',  # " was "
+        r' are ',  # " are "
+        r' were ',  # " were "
+        r' which ',  # " which "
+        r' who ',  # " who "
+        r' that ',  # " that "
+        r' and ',  # " and "
+        r' but ',  # " but "
+        r' however ',  # " however "
+        r' although ',  # " although "
+        r' because ',  # " because "
+        r' since ',  # " since "
+        r' while ',  # " while "
+        r' during ',  # " during "
+        r' after ',  # " after "
+        r' before ',  # " before "
+        r' in \d{4}',  # " in 1985" (year)
+        r' from \d{4}',  # " from 1985"
+        r' between \d{4}',  # " between 1985"
+    ]
+    
+    for pattern in stop_patterns:
+        match = re.search(pattern, answer, re.IGNORECASE)
+        if match:
+            answer = answer[:match.start()].strip()
+            break
+    
+    # Clean up the answer
+    answer = answer.strip()
+    
+    # Remove quotes
+    answer = answer.strip('"\'')
+    
+    # Remove trailing punctuation
+    answer = answer.rstrip('.,!?;:')
+    
+    # If it's too long, take first few words (but be less aggressive)
+    words = answer.split()
+    if len(words) > 8:  # Increased from 5 to 8
+        answer = " ".join(words[:5])  # Take first 5 words instead of 3
+    
+    return answer if answer and len(answer) > 1 else None
+
+
+def is_vague_or_non_answer(model_answer, question):
+    """
+    Check if the model answer is vague or doesn't properly answer the question
+    Made less aggressive
+    """
+    if not model_answer or len(model_answer.strip()) == 0:
+        return True
+    
+    answer_lower = model_answer.lower().strip()
+    
+    # Only check for the most obvious non-answer patterns
+    vague_patterns = [
+        "i don't know",
+        "i'm not sure",
+        "i cannot",
+        "i can't",
+        "unable to",
+        "don't have information",
+        "not available",
+        "not provided",
+        "i'm sorry",
+        "i apologize",
+        "cannot determine",
+        "cannot provide",
+        "not specified in",
+        "not mentioned in",
+        "not clear from",
+        "difficult to determine",
+        "hard to determine",
+        "no information",
+        "no details",
+        "cannot answer"
+    ]
+    
+    # Check if answer starts with these patterns (more precise)
+    for pattern in vague_patterns:
+        if answer_lower.startswith(pattern) or f" {pattern}" in answer_lower:
+            return True
+    
+    # Check if answer is too short (less than 2 characters)
+    if len(answer_lower) < 2:
+        return True
+    
+    return False
+
+
 def extract_answer_with_llm(question, model_answer, model, tokenizer, max_retries=2):
     """
-    Extract answer using LLM with improved prompting and multiple attempts
-    Returns "NO ANSWER" if the model response is vague or doesn't answer the question
+    Hybrid approach: Try direct extraction first, then conservative LLM extraction
     """
     
-    # First, check if the original answer is vague or non-responsive
+    # First, try direct pattern-based extraction
+    direct_answer = extract_answer_direct(model_answer, question)
+    if direct_answer and not is_vague_or_non_answer(direct_answer, question):
+        return direct_answer
+    
+    # If direct extraction fails, check if the original answer is vague
     if is_vague_or_non_answer(model_answer, question):
         return "NO ANSWER"
     
+    # Try LLM extraction as a fallback with simpler prompts
     model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
     mn_lower = model_name.lower()
     
-    # Very conservative prompts that explicitly ask for extraction, not generation
+    # Simpler, more direct prompts
     prompts_to_try = [
-        # Explicit extraction instruction
-        f"Look at this response and extract ONLY the specific answer that directly answers the question. If there is no clear answer, respond with 'NO ANSWER'.\n\nQuestion: {question}\nResponse: {model_answer}\n\nExtracted answer:",
-        
-        # Simple pattern
-        f"Response: {model_answer}\n\nWhat is the main answer? (If unclear, say 'NO ANSWER'):",
-        
-        # Direct instruction
-        f"From this text, extract the answer in 1-3 words. If no clear answer exists, say 'NO ANSWER':\n{model_answer}\n\nAnswer:"
+        f"Extract the main answer from this text in 1-5 words:\n{model_answer}\n\nAnswer:",
+        f"What is the answer?\n{model_answer}\n\nAnswer:",
+        f"Text: {model_answer}\n\nMain answer (brief):"
     ]
     
     for attempt, base_prompt in enumerate(prompts_to_try):
@@ -300,7 +287,7 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer, max_retrie
                 inputs = tokenizer(formatted_prompt, return_tensors="pt").to(model.device)
             
             # Create stopping criteria
-            stop_tokens = ['<end_of_turn>', '<eos>', '</s>', '<|eot_id|>', '\n\n', '\n']
+            stop_tokens = ['<end_of_turn>', '<eos>', '</s>', '<|eot_id|>', '\n']
             stop_ids = []
             for st in stop_tokens:
                 try:
@@ -312,55 +299,57 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer, max_retrie
             
             stopping_criteria = StoppingCriteriaList([StopOnTokens(list(set(stop_ids)))])
             
-            # Very conservative generation parameters
+            # Generate with conservative parameters
             with t.no_grad():
                 outputs = model.generate(
                     **inputs,
-                    max_new_tokens=10,  # Very short
-                    temperature=0.1,     # Very deterministic
+                    max_new_tokens=15,
+                    temperature=0.1,
                     do_sample=True,
                     pad_token_id=tokenizer.eos_token_id,
                     stopping_criteria=stopping_criteria,
-                    repetition_penalty=1.3
+                    repetition_penalty=1.2
                 )
             
             # Decode only new tokens
             new_tokens = outputs[0, inputs['input_ids'].shape[1]:]
             decoded_answer = tokenizer.decode(new_tokens, skip_special_tokens=True)
             
-            # Clean up the answer
-            cleaned_answer = _cleanup_extracted_answer(decoded_answer)
+            # Clean up the answer using the same direct extraction logic
+            cleaned_answer = extract_answer_direct(decoded_answer, question)
             
-            # Strict validation
-            if cleaned_answer and len(cleaned_answer) > 0:
-                # Check if it's "NO ANSWER" 
-                if "NO ANSWER" in cleaned_answer.upper():
-                    return "NO ANSWER"
-                
-                # Check if it's a reasonable extraction (not hallucination)
-                if (len(cleaned_answer.split()) <= 4 and  # Short answer
+            # Validate the answer
+            if cleaned_answer and len(cleaned_answer) > 1:
+                # Check if it's a reasonable extraction
+                if (len(cleaned_answer.split()) <= 6 and  # Allow up to 6 words
                     not any(phrase in cleaned_answer.lower() for phrase in [
-                        "extract", "answer from", "question", "response", "complete", "find",
-                        "look at", "main", "text", "unclear", "exists"
+                        "extract", "answer from", "question", "response", "text:", "main"
                     ]) and
                     not cleaned_answer.startswith('Q:') and
                     not cleaned_answer.startswith('A:') and
                     not is_vague_or_non_answer(cleaned_answer, question)):
                     
-                    # Final check: does this answer seem related to the original response?
-                    # Simple heuristic: check if any words from the extracted answer appear in the original response
+                    # Check if answer words appear in original response (less strict)
                     answer_words = set(cleaned_answer.lower().split())
                     response_words = set(model_answer.lower().split())
                     
+                    # If at least one word matches, accept it
                     if len(answer_words.intersection(response_words)) > 0:
                         return cleaned_answer
             
         except Exception as e:
-            print(f"Attempt {attempt + 1} failed: {e}")
+            print(f"LLM extraction attempt {attempt + 1} failed: {e}")
             continue
     
     # If all attempts fail, return NO ANSWER
     return "NO ANSWER"
+
+
+def _cleanup_extracted_answer(decoded_output):
+    """
+    Simplified cleanup function - just use the direct extraction
+    """
+    return extract_answer_direct(decoded_output, "")
 
 def find_answer_token_indices_by_string_matching(tokenizer, full_generated_ids, prompt_ids, exact_answer_str):
     try: full_decoded_text = tokenizer.decode(full_generated_ids, skip_special_tokens=False)
