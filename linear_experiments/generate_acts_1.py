@@ -98,7 +98,6 @@ def generate_model_answers(data, model, tokenizer, device, model_name, do_sample
 # --- Other Helper Functions ---
 def _create_extraction_prompt(raw_question, model_answer):
     return f"""
-        <start_of_turn>user
         Extract the exact answer from the long answer. If the long answer doesn't answer the question, return “NO ANSWER.” Ignore factual correctness; extract what appears most relevant.
 
         Examples:
@@ -113,10 +112,8 @@ def _create_extraction_prompt(raw_question, model_answer):
         Q: What is the capital of the moon?
         A: The moon does not have a capital city as it is not a country.
         Exact answer: NO ANSWER
-        <end_of_turn>
-
+        
         Now extract for this:
-        <start_of_turn>model
         Q: {raw_question}
         A: {model_answer}
         Exact answer:
@@ -167,15 +164,45 @@ def find_exact_answer_simple(model_answer: str, correct_answer):
         return model_answer[found_ans_index : found_ans_index + len(found_ans)]
     return None
 
+# MODIFIED: This function now correctly formats its prompt for Gemma models.
 def extract_answer_with_llm(question, model_answer, model, tokenizer):
-    prompt = _create_extraction_prompt(question, model_answer)
-    inputs = tokenize(prompt, tokenizer, model.name_or_path)
+    # 1. Create the base few-shot prompt for the extraction task.
+    extraction_task_prompt = _create_extraction_prompt(question, model_answer)
+    model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
+    mn_lower = model_name.lower()
+
+    # 2. Apply the correct final prompt format based on the model type.
+    if 'instruct' in mn_lower or 'it' in mn_lower:
+        # For instruct models, the tokenizer's chat template handles it.
+        final_prompt = extraction_task_prompt
+        inputs = tokenize(final_prompt, tokenizer, model_name)
+    else:
+        # For base models, we must manually apply the correct template.
+        if 'gemma' in mn_lower:
+            # Use your successful prompt format for Gemma base models.
+            final_prompt = f"<start_of_turn>user\n{extraction_task_prompt}<end_of_turn>\n<start_of_turn>model\n"
+        else:
+            # Fallback for other base models like Llama.
+            final_prompt = extraction_task_prompt
+        # Tokenize the manually formatted prompt directly.
+        inputs = tokenizer(final_prompt, return_tensors="pt").to(model.device)
+
+    # 3. Generate a response for the extraction task.
     with t.no_grad():
-        outputs = model.generate(inputs, max_new_tokens=30, pad_token_id=tokenizer.eos_token_id)
-    decoded_output = tokenizer.decode(outputs[0], skip_special_tokens=False)
-    model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'gemma'
-    exact_answer = _cleanup_batched_answer(decoded_output, model_name)
-    if exact_answer and exact_answer.upper() != "NO ANSWER": return exact_answer
+        outputs = model.generate(
+            inputs['input_ids'], 
+            max_new_tokens=30, 
+            pad_token_id=tokenizer.eos_token_id
+        )
+
+    # 4. Decode *only* the newly generated tokens.
+    new_tokens = outputs[0, inputs['input_ids'].shape[1]:]
+    decoded_answer = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+
+    # 5. Return the cleaned answer.
+    if decoded_answer and decoded_answer.upper() != "NO ANSWER":
+        return decoded_answer
+        
     return None
 
 def find_answer_token_indices_by_string_matching(tokenizer, full_generated_ids, prompt_ids, exact_answer_str):
