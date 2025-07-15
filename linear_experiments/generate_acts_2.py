@@ -100,7 +100,7 @@ def _cleanup_extracted_answer(decoded_output):
     for token in tokens_to_remove:
         answer = answer.replace(token, "")
     
-    # FIXED: Remove any lines that start with "Q:" or contain question patterns
+    # Remove any lines that start with "Q:" or contain question patterns
     lines = answer.split('\n')
     cleaned_lines = []
     for line in lines:
@@ -141,6 +141,85 @@ def _cleanup_extracted_answer(decoded_output):
     
     return answer if answer else None
 
+
+def is_vague_or_non_answer(model_answer, question):
+    """
+    Check if the model answer is vague or doesn't properly answer the question
+    """
+    if not model_answer or len(model_answer.strip()) == 0:
+        return True
+    
+    answer_lower = model_answer.lower().strip()
+    
+    # Check for common non-answer patterns
+    vague_patterns = [
+        "i don't know",
+        "i'm not sure",
+        "i cannot",
+        "i can't",
+        "unable to",
+        "don't have",
+        "not available",
+        "not provided",
+        "unclear",
+        "uncertain",
+        "it depends",
+        "various",
+        "many",
+        "some",
+        "several",
+        "different",
+        "there are many",
+        "there are several",
+        "it varies",
+        "not specified",
+        "not mentioned",
+        "not clear",
+        "difficult to say",
+        "hard to say",
+        "cannot determine",
+        "depends on",
+        "based on",
+        "according to",
+        "typically",
+        "usually",
+        "generally",
+        "often",
+        "sometimes",
+        "may be",
+        "might be",
+        "could be",
+        "possibly",
+        "perhaps",
+        "likely",
+        "probably"
+    ]
+    
+    # Check if answer contains vague patterns
+    for pattern in vague_patterns:
+        if pattern in answer_lower:
+            return True
+    
+    # Check if answer is too short (less than 3 characters)
+    if len(answer_lower) < 3:
+        return True
+    
+    # Check if answer is just punctuation or common words
+    if answer_lower in ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by']:
+        return True
+    
+    # Check if answer repeats the question
+    question_words = set(question.lower().split())
+    answer_words = set(answer_lower.split())
+    
+    # If more than 50% of answer words are from the question, it's likely a repeat
+    if len(answer_words) > 0:
+        overlap = len(question_words.intersection(answer_words))
+        if overlap / len(answer_words) > 0.5:
+            return True
+    
+    return False
+
 def check_correctness(model_answer, correct_answers_list):
     if isinstance(correct_answers_list, str):
         try: labels_ = eval(correct_answers_list)
@@ -169,7 +248,7 @@ def find_exact_answer_simple(model_answer: str, correct_answer):
                 found_ans, current_best_index = ans_str, ans_index
         found_ans_index = current_best_index if found_ans else -1
     else:
-        ans_str = str(correct_answer)
+        ans_str = str(correct_answer)   
         found_ans_index = model_answer.lower().find(ans_str.lower())
         found_ans = ans_str
     if found_ans_index != -1:
@@ -179,27 +258,32 @@ def find_exact_answer_simple(model_answer: str, correct_answer):
 def extract_answer_with_llm(question, model_answer, model, tokenizer, max_retries=2):
     """
     Extract answer using LLM with improved prompting and multiple attempts
+    Returns "NO ANSWER" if the model response is vague or doesn't answer the question
     """
+    
+    # First, check if the original answer is vague or non-responsive
+    if is_vague_or_non_answer(model_answer, question):
+        return "NO ANSWER"
+    
     model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
     mn_lower = model_name.lower()
     
-    # IMPROVED: More focused prompts that avoid repetition
+    # Very conservative prompts that explicitly ask for extraction, not generation
     prompts_to_try = [
-        # Very direct instruction
-        f"Extract the key answer from this response in 1-3 words only:\n\nQuestion: {question}\nResponse: {model_answer}\n\nKey answer:",
+        # Explicit extraction instruction
+        f"Look at this response and extract ONLY the specific answer that directly answers the question. If there is no clear answer, respond with 'NO ANSWER'.\n\nQuestion: {question}\nResponse: {model_answer}\n\nExtracted answer:",
         
-        # Simple completion format
-        f"Complete this:\n\nQ: {question}\nA: {model_answer}\n\nThe main answer is:",
+        # Simple pattern
+        f"Response: {model_answer}\n\nWhat is the main answer? (If unclear, say 'NO ANSWER'):",
         
-        # Pattern-based extraction
-        f"Find the answer:\n{model_answer}\n\nAnswer (1-3 words):"
+        # Direct instruction
+        f"From this text, extract the answer in 1-3 words. If no clear answer exists, say 'NO ANSWER':\n{model_answer}\n\nAnswer:"
     ]
     
     for attempt, base_prompt in enumerate(prompts_to_try):
         try:
             # Format according to model type
             if 'instruct' in mn_lower or 'it' in mn_lower:
-                # For instruct models, use chat template
                 messages = [{"role": "user", "content": base_prompt}]
                 inputs = tokenizer.apply_chat_template(
                     messages, 
@@ -208,7 +292,6 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer, max_retrie
                 ).to(model.device)
                 inputs = {"input_ids": inputs}
             else:
-                # For base models, add appropriate formatting
                 if 'gemma' in mn_lower:
                     formatted_prompt = f"<start_of_turn>user\n{base_prompt}<end_of_turn>\n<start_of_turn>model\n"
                 else:
@@ -229,19 +312,16 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer, max_retrie
             
             stopping_criteria = StoppingCriteriaList([StopOnTokens(list(set(stop_ids)))])
             
-            # Generate with more restrictive parameters
-            temp = 0.1 if attempt == 0 else 0.2
-            max_tokens = 15 if attempt == 0 else 20  # Even more restrictive
-            
+            # Very conservative generation parameters
             with t.no_grad():
                 outputs = model.generate(
                     **inputs,
-                    max_new_tokens=max_tokens,
-                    temperature=temp,
-                    do_sample=temp > 0,
+                    max_new_tokens=10,  # Very short
+                    temperature=0.1,     # Very deterministic
+                    do_sample=True,
                     pad_token_id=tokenizer.eos_token_id,
                     stopping_criteria=stopping_criteria,
-                    repetition_penalty=1.2  # Higher repetition penalty
+                    repetition_penalty=1.3
                 )
             
             # Decode only new tokens
@@ -251,22 +331,36 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer, max_retrie
             # Clean up the answer
             cleaned_answer = _cleanup_extracted_answer(decoded_answer)
             
-            # Validate the answer more strictly
+            # Strict validation
             if cleaned_answer and len(cleaned_answer) > 0:
-                # Check if it's not just noise or repeated instructions
-                if (len(cleaned_answer.split()) <= 5 and  # Not too long
+                # Check if it's "NO ANSWER" 
+                if "NO ANSWER" in cleaned_answer.upper():
+                    return "NO ANSWER"
+                
+                # Check if it's a reasonable extraction (not hallucination)
+                if (len(cleaned_answer.split()) <= 4 and  # Short answer
                     not any(phrase in cleaned_answer.lower() for phrase in [
-                        "extract", "answer from", "question", "response", "complete", "find"
+                        "extract", "answer from", "question", "response", "complete", "find",
+                        "look at", "main", "text", "unclear", "exists"
                     ]) and
-                    not cleaned_answer.startswith('Q:') and  # Not a question
-                    not cleaned_answer.startswith('A:')):   # Not instruction format
-                    return cleaned_answer
+                    not cleaned_answer.startswith('Q:') and
+                    not cleaned_answer.startswith('A:') and
+                    not is_vague_or_non_answer(cleaned_answer, question)):
+                    
+                    # Final check: does this answer seem related to the original response?
+                    # Simple heuristic: check if any words from the extracted answer appear in the original response
+                    answer_words = set(cleaned_answer.lower().split())
+                    response_words = set(model_answer.lower().split())
+                    
+                    if len(answer_words.intersection(response_words)) > 0:
+                        return cleaned_answer
             
         except Exception as e:
             print(f"Attempt {attempt + 1} failed: {e}")
             continue
     
-    return None
+    # If all attempts fail, return NO ANSWER
+    return "NO ANSWER"
 
 def find_answer_token_indices_by_string_matching(tokenizer, full_generated_ids, prompt_ids, exact_answer_str):
     try: full_decoded_text = tokenizer.decode(full_generated_ids, skip_special_tokens=False)
