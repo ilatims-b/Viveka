@@ -693,3 +693,89 @@ def plot_token_rank_heatmap(
 # =====================================================================================
 # ABLATION & PATCHING
 # =====================================================================================
+# Patches the target hook with source hook, during generation. If token_position=None, patches at all token positions. 
+#Note, source hook should occur before the target hook
+def simple_activation_patching(
+    prompt: str,
+    target_hook: str,
+    source_hook: str,
+    token_position: int,
+    max_new_tokens: int = 20
+):
+    
+    initial_tokens = model.to_tokens(prompt, prepend_bos=False)
+    current_source_activations=None
+
+    # Hook to capture source activations during generation
+    def capture_source_hook(activations, hook):
+        nonlocal current_source_activations
+        current_source_activations = activations.clone()
+        return activations
+    
+    # Hook to patch target activations with current source activations
+    def patch_target_hook(activations, hook):
+        if current_source_activations is None:
+            return activations
+            
+        patched_activations = activations.clone()
+        if token_position is None:
+            # Patch all positions
+            min_len = min(activations.shape[1], current_source_activations.shape[1])
+            patched_activations[:, :min_len, :] = current_source_activations[:, :min_len, :]
+        else:
+            # Patch specific position
+            if token_position < activations.shape[1] and token_position < current_source_activations.shape[1]:
+                patched_activations[:, token_position, :] = current_source_activations[:, token_position, :]
+        return patched_activations
+
+    model.add_hook(source_hook, capture_source_hook)
+    model.add_hook(target_hook, patch_target_hook)
+    
+    try:
+        # Generate response with caching
+        with torch.no_grad():
+            current_tokens = initial_tokens.clone()
+            new_str_tokens = []
+            
+            for step in range(max_new_tokens):
+                
+                # Run forward pass
+                logits = model(current_tokens, prepend_bos=False)
+                
+                # Get next token (greedy decoding)
+                next_token = logits[0, -1, :].argmax(dim=-1, keepdim=True)
+                next_token_str = model.to_str_tokens(next_token)[0]
+                new_str_tokens.append(next_token_str)
+                
+                # Early stopping
+                if next_token_str == model.tokenizer.eos_token:
+                    break
+                    
+                # Append new token
+                current_tokens = torch.cat([current_tokens, next_token.unsqueeze(0)], dim=1)
+                
+                # Clear memory
+                del logits
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            
+            # Run final forward pass with cache
+            final_logits, cache = model.run_with_cache(
+                current_tokens,
+                device=model.cfg.device,
+                prepend_bos=False
+            )
+        
+    finally:
+        # Clean up hook
+        model.reset_hooks()
+    
+    return {
+            'activations': {key: value.cpu() for key, value in cache.items()},
+            'tokens': current_tokens.cpu(),
+            'str_tokens': model.to_str_tokens(current_tokens[0]),
+            'input_str_tokens': initial_tokens,
+            'generated_str_tokens': new_str_tokens,
+            'seq_len': current_tokens.shape[1],
+            'input_text': prompt
+        }
