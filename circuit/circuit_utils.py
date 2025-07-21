@@ -1,7 +1,7 @@
 import os
 import warnings
 
-from typing import Dict, List, Tuple, Optional, Any, Union
+from typing import Dict, List, Tuple, Optional, Any, Union, Callable, Literal
 
 import numpy as np
 import torch
@@ -9,10 +9,12 @@ import torch.nn.functional as F
 from jaxtyping import Float
 import ipywidgets as widgets
 
-from transformer_lens import HookedTransformer
+from transformer_lens import HookedTransformer, ActivationCache
+from transformer_lens.hook_points import HookPoint
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -60,7 +62,7 @@ def extract_activations(model: HookedTransformer, prompt: str, filename: Optiona
     final_logits, cache = model.run_with_cache(tokens, prepend_bos=False)
     cache = cache.remove_batch_dim()
     cache_data = {
-        'activations': {key: value.cpu() for key, value in cache.items()} if filename is not None else dict(cache),
+        'activations': cache.cpu() if filename is not None else cache,
         'final_logits': final_logits.cpu() if filename is not None else final_logits,
         'str_tokens': model.to_str_tokens(tokens[0])
     }
@@ -78,7 +80,7 @@ def extract_activations(model: HookedTransformer, prompt: str, filename: Optiona
 # =====================================================================================
 
 def logit_lens(model: HookedTransformer, activations: Float[torch.Tensor, '... d_model']
-               )-> Float[torch.Tensor, '... n_vocab']:
+               )-> Float[torch.Tensor, '... vocab_size']:
     """
     Projects hidden activations to vocabulary logits using final LayerNorm and unembedding.
 
@@ -690,6 +692,230 @@ def plot_token_rank_heatmap(
 
     return fig
 
+def create_head_contribution_widget(model: HookedTransformer, cache_data: Dict,token: str):
+    '''
+    Plots contribution of each attention head calculated by the dot product of head's
+    output (after applying final layer norm) with the token's residual stream direction.
+
+    Parameters
+    ----------
+    model: HookedTransformer
+        The transformer model.
+    cache_data : dict
+        Dictionary with activations and tokens.
+    token : str
+        Target token.
+    '''
+    # Token processing
+    str_tokens = cache_data['str_tokens']
+    seq_len = len(str_tokens)
+    resid_dir = model.tokens_to_residual_directions(token)
+
+    # Attention head outputs
+    head_out = cache_data['activations'].stack_head_results()
+    head_out = model.ln_final(head_out)
+    dot = torch.einsum('d,ctd->tc', resid_dir, head_out)
+    matrix = dot.reshape(seq_len, model.cfg.n_layers, model.cfg.n_heads)
+    
+    token_slider = widgets.IntSlider(value=0, min=0, max=seq_len-1, step=1,
+                                     description='Start Position:',
+                                     style={'description_width': 'initial'})
+    
+    # Create interactive plot
+    def update_plot(pos):
+        px.imshow(
+            matrix[pos].detach().cpu().numpy(),
+            color_continuous_midpoint=0.0,
+            color_continuous_scale="RdBu",
+            labels={"x": "Head", "y": "Layer"},
+            title=f'Contribution to token "{token}" above token "{str_tokens[pos]}"',
+        ).show()
+
+    # Display widgets
+    widgets.interact(update_plot, pos=token_slider)
+
 # =====================================================================================
-# ABLATION & PATCHING
+# CAUSAL TRACING TOOLS
 # =====================================================================================
+
+Hook = Tuple[int, Callable]
+
+def run_with_hooks(
+    model: HookedTransformer,
+    clean_cache: Dict,
+    hooks: List[Hook],
+    filename: Optional[str] = None
+) -> Float[torch.Tensor, 'pos vocab_size']:
+    '''
+    Runs a forward pass through a HookedTransformer model starting from a specified
+    middle layer, using cached activations to avoid redundant lower-layer computations,
+    and applies user-defined hooks.
+
+    Parameters
+    ----------
+    model: HookedTransformer
+        The transformer model
+    clean_cache: Dict
+        The dictionary containing activation cache providing precomputed activations of the
+        prompt without any hooks, the final logits and str_tokens of the prompt, typically
+        generated using `extract_activations()` function
+    hooks: list[Hook]
+        The hooks to apply to the model. Typically generated using the following functions
+        - ablate(token, layer, kind)
+        - patch(token, layer, kind, patch_cache)
+        - scale_attn_scores(layer, scaling_factor, head)
+        - remove_direction(act_name, direction)
+    filename : str or None, optional
+        File path to save the cache. If None, no file is saved.
+
+    Returns
+    -------
+    torch.Tensor
+        Logits over vocabulary, shape [pos, vocab_size].
+    '''
+    # Getting the cache-storing hooks
+    cache_dict, fwd_hooks, _ = model.get_caching_hooks()
+
+    # Adding additional hooks
+    resume_layer = model.cfg.n_layers - 1
+    hook_list = []
+    for hook_name, hook_fn in hooks:
+        layer = int(hook_name.split('.')[1])
+        assert layer < model.cfg.n_layers
+        if layer < resume_layer:
+            resume_layer = layer
+        hook_list.append((hook_name, hook_fn))
+
+    # Running the model in an optimized way
+    with model.hooks(hook_list + fwd_hooks) as hooked_model:
+        logits = hooked_model.forward(
+            clean_cache['activations'][f'blocks.{resume_layer}.hook_resid_pre'].unsqueeze(0),
+            start_at_layer=resume_layer
+        )
+
+    # Updating cache activations
+    cache = dict(clean_cache['activations'])
+    for key in cache_dict:
+        cache_dict[key] = cache_dict[key].squeeze(0)
+    cache.update(cache_dict)
+    cache = ActivationCache(cache, model, has_batch_dim=False)
+
+    # Preparing cache_data
+    cache_data = {
+        'activations': cache.cpu() if filename is not None else cache,
+        'final_logits': logits.cpu() if filename is not None else logits,
+        'str_tokens': clean_cache['str_tokens']
+    }
+
+    # Save cache data to disk if filename is provided
+    if filename is not None:
+        save_path = f'{filename}.pt'
+        os.makedirs(os.path.dirname(save_path) or '.', exist_ok=True)
+        torch.save(cache_data, save_path)
+
+    return cache_data
+
+def ablate(token: int, layer: int, kind: Literal['attn', 'mlp']) -> Hook:
+    """
+    Ablates attention/MLP block output into the residual stream at a specified token position and layer.
+
+    Parameters
+    ----------
+    token : int
+        Token position to apply the ablation
+    layer : int
+        Layer number to apply the ablation (indexed from 0)
+    kind : {'attn', 'mlp'}
+        Kind of layer to apply ablation on
+        - 'attn': to apply on hook_attn_out
+        - 'mlp': to apply on hook_mlp_out
+    """
+    def hook_fn(activations: Float[torch.Tensor, 'batch pos d_model'], hook: HookPoint):
+        activations[:, token, :] = 0
+        return activations
+    return f'blocks.{layer}.hook_{kind}_out', hook_fn
+
+def patch(
+    token: int,
+    layer: int,
+    kind: Literal['attn', 'mlp', 'pre', 'mid', 'post'],
+    patch_cache: ActivationCache,
+    patch_token: Optional[int] = None
+) -> Hook:
+    """
+    Patches specified activation with that from of patch_cache at a specified token position and layer
+
+    Parameters
+    ----------
+    token : int
+        Token position to apply the ablation
+    layer : int
+        Layer number to apply the ablation (indexed from 0)
+    kind : {'attn', 'mlp', 'pre', 'mid', 'post'}
+        Kind of layer to apply ablation on
+        - 'attn': to apply on hook_attn_out
+        - 'mlp': to apply on hook_mlp_out
+        - 'pre': to apply on hook_resid_pre
+        - 'mid': to apply on hook_resid_mid
+        - 'post': to apply on hook_resid_post
+    patch_cache : ActivationCache
+        The activation cache whose activation will be used for patching
+    patch_token : int or None, optional
+        The token position to patch from patch_cache. Defaults to the same value as `token`
+    """
+    if kind in ['attn', 'mlp']:
+        kind = 'hook_' + kind + '_out'
+    elif kind in ['pre', 'mid', 'post']:
+        kind = 'hook_resid_' + kind
+    else:
+        raise ValueError("kind should be one of ['attn', 'mlp', 'pre', 'mid', 'post']")
+    
+    if patch_token is None:
+        patch_token = token
+
+    def hook_fn(activations: Float[torch.Tensor, 'batch pos d_model'], hook: HookPoint):
+        activations[:, token, :] = patch_cache[hook.name][patch_token, :]
+        return activations
+    return f'blocks.{layer}.{kind}', hook_fn
+
+def scale_attn_scores(layer: int, scaling_factor: float, head: Optional[int] = None) -> Hook:
+    '''
+    Scales attention scores before softmax to amplify or flatten the scores
+
+    Parameters
+    ----------
+    layer : int
+        Layer number to scale the attention scores (indexed from 0)
+    scaling_factor : float
+        The factor by which to multiply the attention score matrix
+        - \< 1: for flattening ie. making attention pattern more uniform
+        - \> 1: for amplifying ie. making attention pattern more peaked
+    head : int or None, optional
+        The head index to apply the scaling. If None, applies to all heads. Defaults to None.
+    '''
+    def hook_fn(attn_scores: Float[torch.Tensor, 'batch head from_pos to_pos'], hook: HookPoint):
+        if head is None:
+            attn_scores *= scaling_factor
+        else:
+            assert head < attn_scores.shape[1]
+            attn_scores[:, head, :, :] *= scaling_factor
+        return attn_scores
+    return f'blocks.{layer}.attn.hook_attn_scores', hook_fn
+
+def remove_direction(act_name: str, direction: Float[torch.Tensor, 'd_model']) -> Hook:
+    '''
+    Removes component of residual stream along direction in the layer specified by activation_name for the last token
+    
+    Parameters
+    ----------
+    act_name : str
+        Layer name to apply direction removal.
+        Use transformer_lens.utils.get_act_name() for more help.
+    direction : torch.Tensor
+        Tensor of shape [d_model] representing the direction to remove (should be on same device).
+    '''
+    direction /= direction.norm()
+    def hook_fn(activations: Float[torch.Tensor, 'batch pos d_model'], hook: HookPoint):
+        activations[:, -1, :] -= activations[0, -1, :].dot(direction) * direction
+        return activations
+    return act_name, hook_fn
