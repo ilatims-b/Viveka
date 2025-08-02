@@ -38,7 +38,7 @@ python flow.py --model_name gemma-2 --ds_path data_tqa/gemma-2_ans_avg_seed0_tes
 * ``--ds_path`` Local path to the data collected before for training and testing TruthFlow.
 * ``--k`` How many top singular vectors to select to form the truthful subspace.
 * ``--alpha`` The hyperparameter to control the intervention intensity. 
-* ``--num_epochs`` How many epochs to train flow matching model.
+* ``--num_epochs`` How many epochs to train flow matching model. Use only when u mention ``--train`` otherwise ignore.
 * Currently ``--open_gen_eval`` pipeline is not working so use ``--mc_eval`` for now.
 * Use ``--truthflow`` for evaluating truthflow intervened model responses or ``-base`` for evaluating unintervened model responses.
 * Mention ``--train`` if u want to train flow model. For evaluation ignore.
