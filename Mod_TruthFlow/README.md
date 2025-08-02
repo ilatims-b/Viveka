@@ -8,6 +8,8 @@ All the errors have been rectified!
 Run the TruthFlow_Intervention.ipynb file (this file is made so that you can run it easily on colab)
 You can use the required commands (for dataset creation, or flow model training) and comment out the other commands in the cell
 
+The below sections are for explaining the commands being used in TruthFlow_Intervention.ipynb
+
 ## Create Dataset For TruthFlow
 To train and test TruthFlow, you have to first extract query last token hidden states and query-specific truthful direction.
 Here is an example command to create dataset.
