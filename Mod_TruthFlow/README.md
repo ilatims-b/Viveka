@@ -17,7 +17,7 @@ Here is an example command to create dataset.
 python create_ds.py --model_name gemma-2 --layers 18 20 22 --test_size 0.5 --seed 0 --token_pos ans_avg --ds_name tqa
 ```
 ### Explanation of the command
-* ``--model_name`` Specifies the model. Refer eval_utils.py for model names supported
+* ``--model_name`` Specifies the model. Refer utils.py for model names supported
 * ``--layers`` Which layer(s) to extract hidden states.
 * ``--test_size`` How to split dataset.
 * ``--seed`` Set random seed to ensure of reproducibility.
