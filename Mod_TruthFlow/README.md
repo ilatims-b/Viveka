@@ -17,7 +17,7 @@ Here is an example command to create dataset.
 python create_ds.py --model_name gemma-2 --layers 18 20 22 --test_size 0.5 --seed 0 --token_pos ans_avg --ds_name tqa
 ```
 ### Explanation of the command
-* ``--model_name`` Specifies the model.
+* ``--model_name`` Specifies the model. Refer eval_utils.py for model names supported
 * ``--layers`` Which layer(s) to extract hidden states.
 * ``--test_size`` How to split dataset.
 * ``--seed`` Set random seed to ensure of reproducibility.
@@ -28,7 +28,7 @@ python create_ds.py --model_name gemma-2 --layers 18 20 22 --test_size 0.5 --see
 
 After collecting training data, the TruthFlow is ready to train and test. The following command will run the training and evaluation process.
 ```bash
-python flow.py --model_name gemma-2 --ds_path data_tqa/gemma-2_ans_avg_seed0_testsize0.5_layers_18_20_22 --layers 20 --seed 0 --use_flow --opengen_eval --eval_method gpt --k 20 --alpha 1.5 --train --num_epochs 40
+python flow.py --model_name gemma-2 --ds_path data_tqa/gemma-2_ans_avg_seed0_testsize0.5_layers_18_20_22 --layers 20 --seed 0 --truthflow --mc_eval --k 20 --alpha 1.5 --train --num_epochs 40
 ```
 ### Explanation of the command
 * ``--model_name`` Specifies the model.
@@ -38,6 +38,9 @@ python flow.py --model_name gemma-2 --ds_path data_tqa/gemma-2_ans_avg_seed0_tes
 * ``--k`` How many top singular vectors to select to form the truthful subspace.
 * ``--alpha`` The hyperparameter to control the intervention intensity. 
 * ``--num_epochs`` How many epochs to train flow matching model.
+* Currently ``--open_gen_eval`` pipeline is not working so use ``--mc_eval`` for now.
+* Use ``--truthflow`` for evaluating truthflow intervened model responses or ``-base`` for evaluating unintervened model responses.
+* Mention ``--train`` if u want to train flow model. For evaluation ignore.
 
 ## Acknowledgements
 
