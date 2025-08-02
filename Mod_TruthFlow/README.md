@@ -6,6 +6,7 @@ All the errors have been rectified!
 
 ## Setup
 Run the TruthFlow_Intervention.ipynb file (this file is made so that you can run it easily on colab)
+
 You can use the required commands (for dataset creation, or flow model training) and comment out the other commands in the cell
 
 The below sections are for explaining the commands being used in TruthFlow_Intervention.ipynb
