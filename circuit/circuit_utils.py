@@ -902,6 +902,32 @@ def scale_attn_scores(layer: int, scaling_factor: float, head: Optional[int] = N
         return attn_scores
     return f'blocks.{layer}.attn.hook_attn_scores', hook_fn
 
+def attn_knockout(layer: int, from_tok: int, to_tok: int, head: Optional[int] = None) -> Hook:
+    '''
+    Disables `from_tok` to `to_tok` attention interaction in a particular layer
+
+    Parameters
+    ----------
+    layer : int
+        Layer number to apply the knockout (indexed from 0)
+    from_tok : int
+        Source token position
+    to_tok : int
+        Destination token position
+    head : int or None, optional
+        The head index to apply the scaling. If None, applies to all heads. Defaults to None.
+    '''
+    def hook_fn(attn_scores: Float[torch.Tensor, 'batch head from_pos to_pos'], hook: HookPoint):
+        assert from_tok < attn_scores.shape[2]
+        assert to_tok < attn_scores.shape[3]
+        if head is None:
+            attn_scores[:, :, from_tok, to_tok] = 0
+        else:
+            assert head < attn_scores.shape[1]
+            attn_scores[:, head, from_tok, to_tok] = 0
+        return attn_scores
+    return f'blocks.{layer}.attn.hook_attn_scores', hook_fn
+
 def remove_direction(act_name: str, direction: Float[torch.Tensor, 'd_model']) -> Hook:
     '''
     Removes component of residual stream along direction in the layer specified by activation_name for the last token
@@ -919,6 +945,83 @@ def remove_direction(act_name: str, direction: Float[torch.Tensor, 'd_model']) -
         activations[:, -1, :] -= activations[0, -1, :].dot(direction) * direction
         return activations
     return act_name, hook_fn
+
+def plot_patching_experiment(
+    model: HookedTransformer,
+    cache1: Dict[str, Any],
+    cache2: Dict[str, Any],
+    word_token1: Optional[str] = None,
+    word_token2: Optional[str] = None,
+    start: int = 0,
+    kind: Literal['attn', 'mlp', 'pre', 'mid', 'post'] = 'post'
+):
+    """
+    Conducts a patching experiment, replacing activations from cache1 with those from cache2
+    at each layer and token position, and visualizes the logit difference between two target
+    tokens as an interactive Plotly heatmap.
+
+    Parameters
+    ----------
+    model : HookedTransformer
+        The transformer model.
+    cache1 : dict
+        Baseline activation cache (from extract_activations).
+    cache2 : dict
+        Patch activation cache (from extract_activations).
+    word_token1 : str, optional
+        First target token for logit difference.
+        If None, defaults to the first token predicted by the model in cache1
+    word_token2 : str
+        Second target token for logit difference.
+        If None, defaults to the first token predicted by the model in cache2
+    start : int
+        Token position to start the patching experiment, by default 0.
+    kind : {'attn', 'mlp', 'pre', 'mid', 'post'}
+        Kind of layer to patch, by default 'post'.
+    """
+    n_layers = model.cfg.n_layers
+    seq_len = len(cache1['str_tokens'])
+    logit_diffs = np.zeros((n_layers, seq_len - start))
+
+    target_pos = cache1['str_tokens'].index('model') + 1
+    token_id1 = model.to_single_token(word_token1 or cache1['str_tokens'][target_pos + 1])
+    token_id2 = model.to_single_token(word_token2 or cache2['str_tokens'][target_pos + 1])
+
+    for layer in range(n_layers):
+        for pos in range(start, seq_len):
+            hook = patch(token=pos, layer=layer, kind=kind, patch_cache=cache2['activations'])
+            patched_cache = run_with_hooks(model, cache1, hooks=[hook])
+            logits = patched_cache['final_logits'][0][target_pos]
+            logit_diffs[layer, pos] = (logits[token_id1] - logits[token_id2]).item()
+
+    # Prepare axis and hover labels
+    layer_labels = [f'Layer {i}' for i in range(n_layers)]
+    pos_labels = [f'{i}: {tok1} <-- {tok2}'
+                  for i, (tok1, tok2) in enumerate(
+                      zip(
+                          cache1['str_tokens'][start:],
+                          cache2['str_tokens'][start:]
+                      ), start=start
+                  )]
+
+    fig = px.imshow(
+        logit_diffs,
+        labels={
+            'x': 'Token Position',
+            'y': 'Layer',
+            'color': f'Logit difference: "{word_token1}" - "{word_token2}"'
+        },
+        x=pos_labels,
+        y=layer_labels,
+        color_continuous_scale='RdBu',
+        aspect='auto',
+        title='Patching Experiment: Logit Difference Heatmap'
+    )
+    fig.update_xaxes(tickangle=45, tickmode='array', tickvals=list(range(seq_len)), ticktext=pos_labels)
+    fig.update_traces(
+        hovertemplate='Layer: %{y}<br>Token Position: %{x}<br>Logit Diff: %{z:.4f}'
+    )
+    fig.show()
 
 # =====================================================================================
 # Patches the target hook with source hook, during generation. If token_position=None, patches at all token positions. 
