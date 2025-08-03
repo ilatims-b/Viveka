@@ -62,8 +62,8 @@ def extract_activations(model: HookedTransformer, prompt: str, filename: Optiona
     final_logits, cache = model.run_with_cache(tokens, prepend_bos=False)
     cache = cache.remove_batch_dim()
     cache_data = {
-        'activations': cache if filename is not None else cache,
-        'final_logits': final_logits if filename is not None else final_logits,
+        'activations': cache.cpu() if filename is not None else cache,
+        'final_logits': final_logits.cpu() if filename is not None else final_logits,
         'str_tokens': model.to_str_tokens(tokens[0])
     }
 
