@@ -53,7 +53,6 @@ def tokenize(prompt, tokenizer, model_name, tokenizer_args=None):
     return model_input
 
 def create_prompts(statements, model_name):
-    """Applies the correct prompt format based on the model type."""
     mn_lower = model_name.lower()
     
     if 'instruct' in mn_lower or 'it' in mn_lower:
