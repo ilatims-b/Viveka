@@ -745,7 +745,7 @@ def run_with_hooks(
     clean_cache: Dict,
     hooks: List[Hook],
     filename: Optional[str] = None
-) -> Float[torch.Tensor, 'pos vocab_size']:
+) -> Dict[str, Any]:
     '''
     Runs a forward pass through a HookedTransformer model starting from a specified
     middle layer, using cached activations to avoid redundant lower-layer computations,
@@ -770,8 +770,11 @@ def run_with_hooks(
 
     Returns
     -------
-    torch.Tensor
-        Logits over vocabulary, shape [pos, vocab_size].
+    dict
+        Dictionary containing:
+        - 'activations': cached intermediate values.
+        - 'final_logits': output logits.
+        - 'str_tokens': list of token strings.
     '''
     # Getting the cache-storing hooks
     cache_dict, fwd_hooks, _ = model.get_caching_hooks()
@@ -953,6 +956,8 @@ def plot_patching_experiment(
     word_token1: Optional[str] = None,
     word_token2: Optional[str] = None,
     start: int = 0,
+    end: int = None,
+    target_pos: Optional[int] = None,
     kind: Literal['attn', 'mlp', 'pre', 'mid', 'post'] = 'post'
 ):
     """
@@ -971,36 +976,49 @@ def plot_patching_experiment(
     word_token1 : str, optional
         First target token for logit difference.
         If None, defaults to the first token predicted by the model in cache1
-    word_token2 : str
+    word_token2 : str, optional
         Second target token for logit difference.
         If None, defaults to the first token predicted by the model in cache2
-    start : int
+    start : int, optional
         Token position to start the patching experiment, by default 0.
+    end : int, optional
+        Token position to end the patching experiment. (This token won't be patched.)
+        If None, defaults to the last token position.
+    target_pos : int, optional
+        Token position where to check for logit difference.
+        By default, it is the position just after the token 'model'.
     kind : {'attn', 'mlp', 'pre', 'mid', 'post'}
         Kind of layer to patch, by default 'post'.
     """
     n_layers = model.cfg.n_layers
     seq_len = len(cache1['str_tokens'])
-    logit_diffs = np.zeros((n_layers, seq_len - start))
+    logit_diffs = np.zeros((n_layers, end - start))
 
-    target_pos = cache1['str_tokens'].index('model') + 1
-    token_id1 = model.to_single_token(word_token1 or cache1['str_tokens'][target_pos + 1])
-    token_id2 = model.to_single_token(word_token2 or cache2['str_tokens'][target_pos + 1])
+    target_pos = cache1['str_tokens'].index('model') + 1 if target_pos is None else target_pos
+    word_token1 = word_token1 or cache1['str_tokens'][target_pos + 1]
+    word_token2 = word_token2 or cache2['str_tokens'][target_pos + 1]
+    token_id1 = model.to_single_token(word_token1)
+    token_id2 = model.to_single_token(word_token2)
+
+    if end is None:
+        end = target_pos + 1
+    assert end <= seq_len
+    assert start < end
 
     for layer in range(n_layers):
-        for pos in range(start, seq_len):
+        for pos in range(start, end):
             hook = patch(token=pos, layer=layer, kind=kind, patch_cache=cache2['activations'])
             patched_cache = run_with_hooks(model, cache1, hooks=[hook])
             logits = patched_cache['final_logits'][0][target_pos]
-            logit_diffs[layer, pos] = (logits[token_id1] - logits[token_id2]).item()
+            logit_diffs[layer, pos - start] = (logits[token_id1] - logits[token_id2]).item()
 
     # Prepare axis and hover labels
     layer_labels = [f'Layer {i}' for i in range(n_layers)]
     pos_labels = [f'{i}: {tok1} <-- {tok2}'
                   for i, (tok1, tok2) in enumerate(
                       zip(
-                          cache1['str_tokens'][start:],
-                          cache2['str_tokens'][start:]
+                          cache1['str_tokens'][start:end],
+                          cache2['str_tokens'][start:end]
                       ), start=start
                   )]
 

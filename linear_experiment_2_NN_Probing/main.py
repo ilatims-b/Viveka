@@ -83,9 +83,9 @@ if __name__ == '__main__':
                 
                 output_csv_path = os.path.join(save_base, f"{dataset}_SUBSAMPLED_with_results.csv")
                 df_sub.to_csv(output_csv_path, index=False, encoding='utf-8')
-                print(f"✅ Early stop: Saved subsampled results to: {output_csv_path}")
+                print(f" Early stop: Saved subsampled results to: {output_csv_path}")
             else:
-                print("⚠️ Warning: No results generated during early stop run. No CSV saved.")
+                print(" Warning: No results generated during early stop run. No CSV saved.")
         elif num_results == len(df):
             df['model_answers'] = all_model_answers  # Now contains lists
             df['automatic_correctness'] = all_correctness_results  # Now contains lists  
@@ -93,11 +93,11 @@ if __name__ == '__main__':
             
             output_csv_path = os.path.join(save_base, f"{dataset}_with_results.csv")
             df.to_csv(output_csv_path, index=False, encoding='utf-8')
-            print(f"✅ Saved full dataset with results to: {output_csv_path}")
+            print(f"Saved full dataset with results to: {output_csv_path}")
         else:
-            print(f"⚠️ Warning: Mismatch between results ({num_results}) and dataset rows ({len(df)}). CSV not saved.")
+            print(f"Warning: Mismatch between results ({num_results}) and dataset rows ({len(df)}). CSV not saved.")
             
-        print(f"📊 Dataset {dataset} summary:")
+        print(f"Dataset {dataset} summary:")
         print(f"   - Total statements processed: {num_results}")
         print(f"   - Generations per statement: {args.num_generations}")
         print(f"   - Total generations: {num_results * args.num_generations}")
