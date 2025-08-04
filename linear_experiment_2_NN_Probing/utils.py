@@ -96,32 +96,29 @@ def encode(prompt, tokenizer, model_name):
     return model_input
 
 def tokenize(prompt, tokenizer, model_name, tokenizer_args=None):
-    if 'instruct' in model_name.lower():
-        messages = [
-            {"role": "user", "content": prompt}
-        ]
-        model_input = tokenizer.apply_chat_template(messages, return_tensors="pt", **(tokenizer_args or {})).to('cuda')
-    else: # non instruct model
-        model_input = tokenizer(prompt, return_tensors='pt', **(tokenizer_args or {}))
-        if "input_ids" in model_input:
-            model_input = model_input["input_ids"].to('cuda')
-    return model_input
+    """Fixed tokenization function with proper attention mask"""
+    inputs = tokenizer(
+        text, 
+        return_tensors="pt", 
+        add_special_tokens=True,
+        padding=True,
+        truncation=True
+    )
+    return inputs['input_ids'].squeeze(), inputs.get('attention_mask', None)
 
 def generate(model_input, model, model_name, do_sample=False, output_scores=False, temperature=1.0, top_k=50, top_p=1.0,
-             max_new_tokens=100, stop_token_id=None, tokenizer=None, output_hidden_states=False, additional_kwargs=None):
-
-    if stop_token_id is not None:
-        eos_token_id = stop_token_id
-    else:
-        eos_token_id = None
-
+             max_new_tokens=100, stop_token_id=None, tokenizer=None, output_hidden_states=False, additional_kwargs=None,
+             stopping_criteria=None):
+    if stop_token_id is not None: eos_token_id = stop_token_id
+    else: eos_token_id = None
+    
     model_output = model.generate(model_input,
                                   max_new_tokens=max_new_tokens, output_hidden_states=output_hidden_states,
                                   output_scores=output_scores,
                                   return_dict_in_generate=True, do_sample=do_sample,
                                   temperature=temperature, top_k=top_k, top_p=top_p, eos_token_id=eos_token_id,
+                                  stopping_criteria=stopping_criteria,
                                   **(additional_kwargs or {}))
-
     return model_output
 
 def create_prompts(statements, model_name):
@@ -133,25 +130,55 @@ def create_prompts(statements, model_name):
     else:
         return statements
 
-def generate_model_answers(data, model, tokenizer, device, model_name, do_sample=False,
-                           temperature=1.0, top_p=1.0, max_new_tokens=100, stop_token_id=None, verbose=False,
-                           stopping_criteria=None):
-    all_textual_answers = []
-    all_input_output_ids = []
+def generate_model_answers(prompts, model, tokenizer, device, model_name, max_new_tokens=64, stopping_criteria=None):
+    if tokenizer.pad_token is None:
+        if tokenizer.eos_token is not None:
+            tokenizer.pad_token = tokenizer.eos_token
+    else:
+            # Add a new pad token if no eos token exists
+        tokenizer.add_special_tokens({'pad_token': '<pad>'})
+        model.resize_token_embeddings(len(tokenizer))
     
-    for prompt in data:
-        model_input = tokenize(prompt, tokenizer, model_name)
-        with torch.no_grad():
-            model_output = generate(model_input, model, model_name, do_sample=do_sample,
-                                    max_new_tokens=max_new_tokens,
-                                    top_p=top_p, temperature=temperature,
-                                    stop_token_id=stop_token_id, tokenizer=tokenizer,
-                                    stopping_criteria=stopping_criteria)
+    all_model_answers_raw = []
+    all_generated_ids = []
+    
+    for prompt in prompts:
+        # Tokenize with proper attention mask
+        inputs = tokenizer(
+            prompt, 
+            return_tensors="pt", 
+            padding=True, 
+            truncation=True,
+            add_special_tokens=True
+        ).to(device)
         
-        answer = tokenizer.decode(model_output['sequences'][0][len(model_input[0]):], skip_special_tokens=True)
-        all_textual_answers.append(answer)
-        all_input_output_ids.append(model_output['sequences'][0].cpu())
-    return all_textual_answers, all_input_output_ids
+        # Generate with consistent parameters for reproducible results
+        with t.no_grad():
+            generated = model.generate(
+                input_ids=inputs['input_ids'],
+                attention_mask=inputs['attention_mask'],  # This is key!
+                max_new_tokens=max_new_tokens,
+                do_sample=True,  # Enable sampling for variety
+                temperature=0.7,  # Control randomness
+                top_p=0.9,       # Nucleus sampling
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+                stopping_criteria=stopping_criteria,
+                # Optional: set seed for reproducibility
+                # use_cache=True,
+            )
+        
+        # Extract only the newly generated tokens
+        generated_ids = generated[0][inputs['input_ids'].shape[1]:]
+        
+        # Decode the generated text
+        model_answer_raw = tokenizer.decode(generated_ids, skip_special_tokens=True)
+        
+        all_model_answers_raw.append(model_answer_raw)
+        all_generated_ids.append(generated_ids.cpu())
+    
+    return all_model_answers_raw, all_generated_ids
+
 
 def check_correctness(model_answer, correct_answers_list):
     if isinstance(correct_answers_list, str):
@@ -582,3 +609,21 @@ def load_statements(dataset_name):
     if question_col not in df.columns or label_col not in df.columns:
         raise ValueError(f"Dataset {dataset_name}.csv must have a question and an answer column.")
     return df, df[question_col].tolist(), df[label_col].tolist()
+
+def find_answer_token_indices_by_string_matching(tokenizer, full_generated_ids, prompt_ids, exact_answer_str):
+    try: full_decoded_text = tokenizer.decode(full_generated_ids, skip_special_tokens=False)
+    except: return None
+    match = process.extractOne(exact_answer_str, [full_decoded_text], scorer=fuzz.partial_ratio, score_cutoff=90)
+    if not match: return None
+    best_match_str = match[0]
+    start_char = full_decoded_text.find(best_match_str)
+    if start_char == -1: return None
+    end_char = start_char + len(best_match_str)
+    encoding = tokenizer(full_decoded_text, return_offsets_mapping=True, add_special_tokens=False)
+    offset_mapping = encoding['offset_mapping']
+    token_indices = []
+    for i, (token_start, token_end) in enumerate(offset_mapping):
+        if token_start < end_char and start_char < token_end:
+            if i < len(full_generated_ids):
+                token_indices.append(i)
+    return token_indices if token_indices else None
