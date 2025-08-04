@@ -53,7 +53,7 @@ if __name__ == '__main__':
             batch_correct_ans = correct_answers[start:start + args.batch_size]
             
             # Use the modified function for multiple generations
-            acts, batch_correctness, batch_model_ans, batch_exact_ans = get_acts_multi_generation(
+            acts, batch_correctness, batch_model_ans, batch_exact_ans = get_resid_acts(
                 batch_stmts, batch_correct_ans, tokenizer, model, layer_modules, li, args.device, 
                 num_generations=args.num_generations,
                 enable_llm_extraction=args.enable_llm_extraction
