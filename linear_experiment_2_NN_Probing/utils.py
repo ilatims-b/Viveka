@@ -129,11 +129,9 @@ def create_prompts(statements, model_name):
     mn_lower = model_name.lower()
     
     if 'instruct' in mn_lower or 'it' in mn_lower:
-        return statements
-    elif 'gemma' in mn_lower:
         return [f"<start_of_turn>user\nQ: {s}<end_of_turn>\n<start_of_turn>model\nA:" for s in statements]
     else:
-        return [f"Q:<start_of_turn>user\n{s}<end_of_turn>\n<start_of_turn>model\nA:" for s in statements]
+        return statements
 
 def generate_model_answers(data, model, tokenizer, device, model_name, do_sample=False,
                            temperature=1.0, top_p=1.0, max_new_tokens=100, stop_token_id=None, verbose=False,
@@ -560,11 +558,6 @@ def _cleanup_extracted_answer(decoded_output):
     """
     return extract_answer_direct(decoded_output, "")
 
-class Hook:
-    def __init__(self): self.out = None
-    def __call__(self, module, module_inputs, module_outputs):
-        self.out = module_outputs[0] if isinstance(module_outputs, tuple) else module_outputs
-
 def load_model(model_repo_id: str, device: str):
     print(f"Loading from Hugging Face Hub: {model_repo_id}")
     tokenizer = AutoTokenizer.from_pretrained(model_repo_id)
@@ -589,5 +582,3 @@ def load_statements(dataset_name):
     if question_col not in df.columns or label_col not in df.columns:
         raise ValueError(f"Dataset {dataset_name}.csv must have a question and an answer column.")
     return df, df[question_col].tolist(), df[label_col].tolist()
-
-
