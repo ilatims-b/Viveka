@@ -985,8 +985,8 @@ def plot_patching_experiment(
     logit_diffs = np.zeros((n_layers, seq_len - start))
     if target_pos is None:
       target_pos = cache1['str_tokens'].index('model') + 1
-    token_id1 = model.to_single_token(word_token1 or cache1['str_tokens'][target_pos + 1])
-    token_id2 = model.to_single_token(word_token2 or cache2['str_tokens'][target_pos + 1])
+    token_id1 = model.to_single_token(word_token1 or cache1['str_tokens'][cache1['str_tokens'].index('model') + 2])
+    token_id2 = model.to_single_token(word_token2 or cache2['str_tokens'][cache2['str_tokens'].index('model') + 2])
 
     for layer in range(n_layers):
         for pos in range(start, seq_len):
