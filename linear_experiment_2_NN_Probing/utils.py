@@ -16,8 +16,6 @@ from tqdm import tqdm
 from transformers import (AutoTokenizer, AutoModelForCausalLM, LlamaTokenizer,
                           LlamaForCausalLM, StoppingCriteria, StoppingCriteriaList)
 import argparse
-import pandas as pd
-from tqdm import tqdm
 import os
 import glob
 from thefuzz import process, fuzz
