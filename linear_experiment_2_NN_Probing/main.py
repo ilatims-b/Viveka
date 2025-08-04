@@ -1,4 +1,4 @@
-from utils import encode, generate, create_prompts, generate_model_answers, check_correctness, find_exact_answer_simple, extract_answer_direct, is_vague_or_non_answer, extract_answer_with_llm, _cleanup_extracted_answer, load_model, load_statements, StopOnTokens, tokenize, find_answer_token_indices_by_string_matching
+from utils import encode, generate, create_prompts, generate_model_answers, check_correctness, find_exact_answer_simple, extract_answer_direct, is_vague_or_non_answer, extract_answer_with_llm, _cleanup_extracted_answer, load_model, load_statements, StopOnTokens, tokenize, find_answer_token_indices_by_string_matching, try_llm_extraction
 from hook import Hook, get_resid_acts
 import argparse
 from tqdm import tqdm

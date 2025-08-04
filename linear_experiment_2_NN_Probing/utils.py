@@ -464,118 +464,202 @@ def is_vague_or_non_answer(model_answer, question):
     return False
 
 
+# def extract_answer_with_llm(question, model_answer, model, tokenizer, max_retries=2):
+#     """
+#     Hybrid approach: Try direct extraction first, then conservative LLM extraction
+#     """
+    
+#     # First, try direct pattern-based extraction
+#     direct_answer = extract_answer_direct(model_answer, question)
+#     if direct_answer and not is_vague_or_non_answer(direct_answer, question):
+#         return direct_answer
+    
+#     # If direct extraction fails, check if the original answer is vague
+#     if is_vague_or_non_answer(model_answer, question):
+#         return "NO ANSWER"
+    
+#     # Try LLM extraction as a fallback with simpler prompts
+#     model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
+#     mn_lower = model_name.lower()
+    
+#     # Simpler, more direct prompts
+#     prompts_to_try = [
+#         f"Extract the main answer from this text in 1-5 words:\n{model_answer}\n\nAnswer:",
+#         f"What is the answer?\n{model_answer}\n\nAnswer:",
+#         f"Text: {model_answer}\n\nMain answer (brief):"
+#     ]
+    
+#     for attempt, base_prompt in enumerate(prompts_to_try):
+#         try:
+#             # Format according to model type
+#             if 'instruct' in mn_lower or 'it' in mn_lower:
+#                 messages = [{"role": "user", "content": base_prompt}]
+#                 inputs = tokenizer.apply_chat_template(
+#                     messages, 
+#                     add_generation_prompt=True, 
+#                     return_tensors="pt"
+#                 ).to(model.device)
+#                 inputs = {"input_ids": inputs}
+#             else:
+#                 if 'gemma' in mn_lower:
+#                     formatted_prompt = f"<start_of_turn>user\n{base_prompt}<end_of_turn>\n<start_of_turn>model\n"
+#                 else:
+#                     formatted_prompt = base_prompt
+                
+#                 inputs = tokenizer(formatted_prompt, return_tensors="pt").to(model.device)
+            
+#             # Create stopping criteria
+#             stop_tokens = ['<end_of_turn>', '<eos>', '</s>', '<|eot_id|>', '\n']
+#             stop_ids = []
+#             for st in stop_tokens:
+#                 try:
+#                     encoded = tokenizer.encode(st, add_special_tokens=False)
+#                     if encoded:
+#                         stop_ids.append(encoded[-1])
+#                 except:
+#                     continue
+            
+#             stopping_criteria = StoppingCriteriaList([StopOnTokens(list(set(stop_ids)))])
+            
+#             # Generate with conservative parameters
+#             with t.no_grad():
+#                 outputs = model.generate(
+#                     **inputs,
+#                     max_new_tokens=15,
+#                     temperature=0.1,
+#                     do_sample=True,
+#                     pad_token_id=tokenizer.eos_token_id,
+#                     stopping_criteria=stopping_criteria,
+#                     repetition_penalty=1.2
+#                 )
+            
+#             # Decode only new tokens
+#             new_tokens = outputs[0, inputs['input_ids'].shape[1]:]
+#             decoded_answer = tokenizer.decode(new_tokens, skip_special_tokens=True)
+            
+#             # Clean up the answer using the same direct extraction logic
+#             cleaned_answer = extract_answer_direct(decoded_answer, question)
+            
+#             # Validate the answer much more strictly
+#             if cleaned_answer and len(cleaned_answer) > 1:
+#                 # First check if the cleaned answer itself is vague
+#                 if is_vague_or_non_answer(cleaned_answer, question):
+#                     continue  # Try next attempt
+                
+#                 # Check if it's a reasonable extraction
+#                 if (len(cleaned_answer.split()) <= 6 and  # Allow up to 6 words
+#                     not any(phrase in cleaned_answer.lower() for phrase in [
+#                         "extract", "answer from", "question", "response", "text:", "main", "brief"
+#                     ]) and
+#                     not cleaned_answer.startswith('Q:') and
+#                     not cleaned_answer.startswith('A:') and
+#                     not cleaned_answer.startswith('The ') and  # Often indicates incomplete extraction
+#                     not cleaned_answer.startswith('It ') and   # Often indicates incomplete extraction
+#                     not cleaned_answer.startswith('This ') and # Often indicates incomplete extraction
+#                     not cleaned_answer.startswith('That ')):   # Often indicates incomplete extraction
+                    
+#                     # Check if answer words appear in original response (stricter)
+#                     answer_words = set(cleaned_answer.lower().split())
+#                     response_words = set(model_answer.lower().split())
+                    
+#                     # Require at least 60% of answer words to be in original response
+#                     if len(answer_words) > 0:
+#                         overlap = len(answer_words.intersection(response_words))
+#                         overlap_ratio = overlap / len(answer_words)
+                        
+#                         if overlap_ratio >= 0.6:  # At least 60% overlap
+#                             return cleaned_answer
+            
+#         except Exception as e:
+#             print(f"LLM extraction attempt {attempt + 1} failed: {e}")
+#             continue
+    
+#     # If all attempts fail, return NO ANSWER
+#     return "NO ANSWER"
+
+
 def extract_answer_with_llm(question, model_answer, model, tokenizer, max_retries=2):
     """
-    Hybrid approach: Try direct extraction first, then conservative LLM extraction
+    Simplified approach: Try LLM extraction first, then direct extraction as fallback
     """
     
-    # First, try direct pattern-based extraction
+    # First, try LLM extraction
+    llm_answer = try_llm_extraction(question, model_answer, model, tokenizer)
+    if llm_answer and llm_answer != "NO ANSWER":
+        return llm_answer
+    
+    # Fallback to direct pattern-based extraction
     direct_answer = extract_answer_direct(model_answer, question)
     if direct_answer and not is_vague_or_non_answer(direct_answer, question):
         return direct_answer
     
-    # If direct extraction fails, check if the original answer is vague
-    if is_vague_or_non_answer(model_answer, question):
-        return "NO ANSWER"
-    
-    # Try LLM extraction as a fallback with simpler prompts
-    model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
-    mn_lower = model_name.lower()
-    
-    # Simpler, more direct prompts
-    prompts_to_try = [
-        f"Extract the main answer from this text in 1-5 words:\n{model_answer}\n\nAnswer:",
-        f"What is the answer?\n{model_answer}\n\nAnswer:",
-        f"Text: {model_answer}\n\nMain answer (brief):"
-    ]
-    
-    for attempt, base_prompt in enumerate(prompts_to_try):
-        try:
-            # Format according to model type
-            if 'instruct' in mn_lower or 'it' in mn_lower:
-                messages = [{"role": "user", "content": base_prompt}]
-                inputs = tokenizer.apply_chat_template(
-                    messages, 
-                    add_generation_prompt=True, 
-                    return_tensors="pt"
-                ).to(model.device)
-                inputs = {"input_ids": inputs}
-            else:
-                if 'gemma' in mn_lower:
-                    formatted_prompt = f"<start_of_turn>user\n{base_prompt}<end_of_turn>\n<start_of_turn>model\n"
-                else:
-                    formatted_prompt = base_prompt
-                
-                inputs = tokenizer(formatted_prompt, return_tensors="pt").to(model.device)
-            
-            # Create stopping criteria
-            stop_tokens = ['<end_of_turn>', '<eos>', '</s>', '<|eot_id|>', '\n']
-            stop_ids = []
-            for st in stop_tokens:
-                try:
-                    encoded = tokenizer.encode(st, add_special_tokens=False)
-                    if encoded:
-                        stop_ids.append(encoded[-1])
-                except:
-                    continue
-            
-            stopping_criteria = StoppingCriteriaList([StopOnTokens(list(set(stop_ids)))])
-            
-            # Generate with conservative parameters
-            with t.no_grad():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=15,
-                    temperature=0.1,
-                    do_sample=True,
-                    pad_token_id=tokenizer.eos_token_id,
-                    stopping_criteria=stopping_criteria,
-                    repetition_penalty=1.2
-                )
-            
-            # Decode only new tokens
-            new_tokens = outputs[0, inputs['input_ids'].shape[1]:]
-            decoded_answer = tokenizer.decode(new_tokens, skip_special_tokens=True)
-            
-            # Clean up the answer using the same direct extraction logic
-            cleaned_answer = extract_answer_direct(decoded_answer, question)
-            
-            # Validate the answer much more strictly
-            if cleaned_answer and len(cleaned_answer) > 1:
-                # First check if the cleaned answer itself is vague
-                if is_vague_or_non_answer(cleaned_answer, question):
-                    continue  # Try next attempt
-                
-                # Check if it's a reasonable extraction
-                if (len(cleaned_answer.split()) <= 6 and  # Allow up to 6 words
-                    not any(phrase in cleaned_answer.lower() for phrase in [
-                        "extract", "answer from", "question", "response", "text:", "main", "brief"
-                    ]) and
-                    not cleaned_answer.startswith('Q:') and
-                    not cleaned_answer.startswith('A:') and
-                    not cleaned_answer.startswith('The ') and  # Often indicates incomplete extraction
-                    not cleaned_answer.startswith('It ') and   # Often indicates incomplete extraction
-                    not cleaned_answer.startswith('This ') and # Often indicates incomplete extraction
-                    not cleaned_answer.startswith('That ')):   # Often indicates incomplete extraction
-                    
-                    # Check if answer words appear in original response (stricter)
-                    answer_words = set(cleaned_answer.lower().split())
-                    response_words = set(model_answer.lower().split())
-                    
-                    # Require at least 60% of answer words to be in original response
-                    if len(answer_words) > 0:
-                        overlap = len(answer_words.intersection(response_words))
-                        overlap_ratio = overlap / len(answer_words)
-                        
-                        if overlap_ratio >= 0.6:  # At least 60% overlap
-                            return cleaned_answer
-            
-        except Exception as e:
-            print(f"LLM extraction attempt {attempt + 1} failed: {e}")
-            continue
-    
-    # If all attempts fail, return NO ANSWER
+    # If both fail, return NO ANSWER
     return "NO ANSWER"
+
+
+def try_llm_extraction(question, model_answer, model, tokenizer):
+    """
+    Try to extract answer using the LLM with the specified prompt template
+    """
+    
+    # Create extraction prompt
+    extraction_prompt = f"Extract the exact answer from this response. Give only the answer, no explanation.\n\nQuestion: {question}\nResponse: {model_answer}\n\nAnswer:"
+    
+    # Format using the specified template
+    formatted_prompt = f"<start_of_turn>user\n{extraction_prompt}<end_of_turn>\n<start_of_turn>model\nA:"
+    
+    try:
+        # Tokenize
+        inputs = tokenizer(formatted_prompt, return_tensors="pt").to(model.device)
+        
+        # Create stopping criteria
+        stop_tokens = ['<end_of_turn>', '<eos>', '</s>', '\n']
+        stop_ids = []
+        for st in stop_tokens:
+            try:
+                encoded = tokenizer.encode(st, add_special_tokens=False)
+                if encoded:
+                    stop_ids.append(encoded[-1])
+            except:
+                continue
+        
+        stopping_criteria = StoppingCriteriaList([StopOnTokens(list(set(stop_ids)))])
+        
+        # Generate with conservative parameters
+        with t.no_grad():
+            outputs = model.generate(
+                input_ids=inputs['input_ids'],
+                max_new_tokens=20,
+                temperature=0.1,
+                do_sample=True,
+                pad_token_id=tokenizer.eos_token_id,
+                stopping_criteria=stopping_criteria
+            )
+        
+        # Decode only new tokens
+        new_tokens = outputs[0, inputs['input_ids'].shape[1]:]
+        decoded_answer = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        
+        # Basic validation
+        if decoded_answer and len(decoded_answer) > 0:
+            # Remove common prefixes/artifacts
+            cleaned = decoded_answer.strip()
+            for prefix in ["A:", "Answer:", "The answer is", "It is"]:
+                if cleaned.startswith(prefix):
+                    cleaned = cleaned[len(prefix):].strip()
+            
+            # Basic sanity checks
+            if (len(cleaned) > 0 and 
+                len(cleaned.split()) <= 10 and  # Reasonable length
+                not any(phrase in cleaned.lower() for phrase in [
+                    "extract", "response:", "question:", "explanation"
+                ])):
+                return cleaned
+    
+    except Exception as e:
+        print(f"LLM extraction failed: {e}")
+    
+    return None
 
 def _cleanup_extracted_answer(decoded_output):
     """
