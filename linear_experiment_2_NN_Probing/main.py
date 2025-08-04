@@ -1,4 +1,4 @@
-from utils import encode, generate, create_prompts, generate_model_answers, check_correctness, find_exact_answer_simple, extract_answer_direct, is_vague_or_non_answer, extract_answer_with_llm, _cleanup_extracted_answer, load_model, load_statements
+from utils import encode, generate, create_prompts, generate_model_answers, check_correctness, find_exact_answer_simple, extract_answer_direct, is_vague_or_non_answer, extract_answer_with_llm, _cleanup_extracted_answer, load_model, load_statements, StopOnTokens, tokenize, find_answer_token_indices_by_string_matching
 from hook import Hook, get_resid_acts
 import argparse
 from tqdm import tqdm
@@ -9,6 +9,8 @@ from transformers import (AutoTokenizer, AutoModelForCausalLM, LlamaTokenizer,
                           LlamaForCausalLM, StoppingCriteria, StoppingCriteriaList)
 import torch as t
 import torch
+
+## commenting to see if git is causing the issue
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Extract activations and check correctness from Hugging Face models.")
@@ -83,9 +85,9 @@ if __name__ == '__main__':
                 
                 output_csv_path = os.path.join(save_base, f"{dataset}_SUBSAMPLED_with_results.csv")
                 df_sub.to_csv(output_csv_path, index=False, encoding='utf-8')
-                print(f"✅ Early stop: Saved subsampled results to: {output_csv_path}")
+                print(f" Early stop: Saved subsampled results to: {output_csv_path}")
             else:
-                print("⚠️ Warning: No results generated during early stop run. No CSV saved.")
+                print(" Warning: No results generated during early stop run. No CSV saved.")
         elif num_results == len(df):
             df['model_answers'] = all_model_answers  # Now contains lists
             df['automatic_correctness'] = all_correctness_results  # Now contains lists  
@@ -93,11 +95,11 @@ if __name__ == '__main__':
             
             output_csv_path = os.path.join(save_base, f"{dataset}_with_results.csv")
             df.to_csv(output_csv_path, index=False, encoding='utf-8')
-            print(f"✅ Saved full dataset with results to: {output_csv_path}")
+            print(f"Saved full dataset with results to: {output_csv_path}")
         else:
-            print(f"⚠️ Warning: Mismatch between results ({num_results}) and dataset rows ({len(df)}). CSV not saved.")
+            print(f"Warning: Mismatch between results ({num_results}) and dataset rows ({len(df)}). CSV not saved.")
             
-        print(f"📊 Dataset {dataset} summary:")
+        print(f"Dataset {dataset} summary:")
         print(f"   - Total statements processed: {num_results}")
         print(f"   - Generations per statement: {args.num_generations}")
         print(f"   - Total generations: {num_results * args.num_generations}")

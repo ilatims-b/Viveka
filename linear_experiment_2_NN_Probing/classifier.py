@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # probing_model.py
 
 import torch
@@ -183,3 +184,5 @@ for epoch in range(hparams.num_epochs):
     log_confusion_matrix(writer, val_labels, val_preds, epoch)
 
 writer.close()
+=======
+>>>>>>> e55e92b46abf27c6ec6a38dab039812e76acdfee
