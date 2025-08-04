@@ -5,11 +5,11 @@ This repository contains the source code and instructions to reproduce the resul
 All the errors have been rectified!
 
 ## Setup
-Run the TruthFlow_Intervention.ipynb file (this file is made so that you can run it easily on colab)
+Create an ipynb file in colab or kaggle, and use the demo.ipynb as a reference for using this repo on colab or kaggle
 
-You can use the required commands (for dataset creation, or flow model training) and comment out the other commands in the cell
+You can use the required commands (for dataset creation, or flow model training) and comment out the other commands in the cell (as shown in demo.ipynb)
 
-The below sections are for explaining the commands being used in TruthFlow_Intervention.ipynb
+The below sections are for explaining the commands being used in demo.ipynb
 
 ## Create Dataset For TruthFlow
 To train and test TruthFlow, you have to first extract query last token hidden states and query-specific truthful direction.
