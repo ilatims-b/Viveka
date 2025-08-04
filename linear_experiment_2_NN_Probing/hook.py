@@ -1,3 +1,5 @@
+from utils import encode, generate, create_prompts, generate_model_answers, check_correctness, find_exact_answer_simple, extract_answer_direct, is_vague_or_non_answer, extract_answer_with_llm, _cleanup_extracted_answer, load_model, load_statements
+
 class Hook:
     def __init__(self): self.out = None
     def __call__(self, module, module_inputs, module_outputs):
@@ -5,7 +7,7 @@ class Hook:
 
 def get_resid_acts(statements, correct_answers, tokenizer, model, layers, layer_indices, device, num_generations=30, enable_llm_extraction=False):
     """Modified function to handle multiple generations per statement"""
-    model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
+    mo  del_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
    
     # Hook into residual stream
     residual_hooks = {}
