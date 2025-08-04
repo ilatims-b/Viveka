@@ -1,4 +1,4 @@
-from utils import encode, generate, create_prompts, generate_model_answers, check_correctness, find_exact_answer_simple, extract_answer_direct, is_vague_or_non_answer, extract_answer_with_llm, _cleanup_extracted_answer, load_model, load_statements, StopOnTokens, find_answer_token_indices_by_string_matching, tokenize
+from utils import encode, generate, create_prompts, generate_model_answers, check_correctness, find_exact_answer_simple, extract_answer_direct, is_vague_or_non_answer, extract_answer_with_llm, _cleanup_extracted_answer, load_model, load_statements, StopOnTokens, find_answer_token_indices_by_string_matching, tokenize, try_llm_extraction
 import argparse
 from tqdm import tqdm
 import os
@@ -75,7 +75,7 @@ def get_resid_acts(statements, correct_answers, tokenizer, model, layers, layer_
             
             stmt_exact_answers.append(exact_answer_str)
             
-            print(f"Debug: stmt_idx={stmt_idx}, gen_idx={gen_idx}, exact_answer_str='{exact_answer_str}'")
+            # print(f"Debug: stmt_idx={stmt_idx}, gen_idx={gen_idx}, exact_answer_str='{exact_answer_str}'")
 
             # Extract activations if we have an exact answer OR if it's "NO ANSWER"
             if exact_answer_str or exact_answer_str == "NO ANSWER":
@@ -94,10 +94,10 @@ def get_resid_acts(statements, correct_answers, tokenizer, model, layers, layer_
                     answer_token_indices = find_answer_token_indices_by_string_matching(
                         tokenizer, generated_ids, inputs['input_ids'].squeeze(), exact_answer_str
                     )
-                    if exact_answer_str != "NO ANSWER":
-                        print(f"  answer_token_indices: {answer_token_indices}")
-                        print(f"  inputs shape: {inputs['input_ids'].shape}")
-                        print(f"  generated_ids shape: {generated_ids.shape}")
+                    # if exact_answer_str != "NO ANSWER":
+                    #     print(f"  answer_token_indices: {answer_token_indices}")
+                    #     print(f"  inputs shape: {inputs['input_ids'].shape}")
+                    #     print(f"  generated_ids shape: {generated_ids.shape}")
                     
                     if answer_token_indices is not None:
                         # Adjust indices for full sequence - convert to tensor and add offset
@@ -124,10 +124,10 @@ def get_resid_acts(statements, correct_answers, tokenizer, model, layers, layer_
                         except IndexError:
                             print(f"IndexError on layer {l} for statement {stmt_idx}, generation {gen_idx}")
                             
-                        if adjusted_indices is not None:
-                            print(f"  ✓ Extracted activation for layer {l}")
-                        else:
-                            print(f"  ✗ Failed to extract activation - adjusted_indices is None")
+                        # if adjusted_indices is not None:
+                        #     print(f"  ✓ Extracted activation for layer {l}")
+                        # else:
+                        #     print(f"  ✗ Failed to extract activation - adjusted_indices is None")
 
                             break
         
