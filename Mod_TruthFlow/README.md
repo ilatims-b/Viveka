@@ -38,7 +38,7 @@ python flow.py --model_name gemma-2 --ds_path data_tqa/gemma-2_ans_avg_seed0_tes
 * ``--ds_path`` Local path to the data collected before for training and testing TruthFlow.
 * ``--k`` How many top singular vectors to select to form the truthful subspace.
 * ``--alpha`` The hyperparameter to control the intervention intensity. 
-* ``--num_epochs`` How many epochs to train flow matching model. Use only when u mention ``--train`` otherwise ignore.
+* ``--num_epochs`` How many epochs to train flow matching model. If u want to evaluate the flow model then use the same argument which u used to train (to match the correct file in the directory {model_name}_{ds_name}_results)
 * Currently ``--open_gen_eval`` pipeline is not working so use ``--mc_eval`` for now.
 * Use ``--truthflow`` for evaluating truthflow intervened model responses or ``-base`` for evaluating unintervened model responses.
 * Mention ``--train`` if u want to train flow model. For evaluation ignore.
@@ -46,7 +46,7 @@ python flow.py --model_name gemma-2 --ds_path data_tqa/gemma-2_ans_avg_seed0_tes
 ## Hyperparameter tuning
 
 If you have stored the data_{ds_name} and {model_name}_{ds_name}_results folders locally with the required files (got by creating dataset and training flow model) then u can upload with these folders in the same Mod_TruthFlow directory in 
-colab and run flow.py without mentioning ``--train`` and ``--num_epocs``.
+colab and run flow.py without mentioning ``--train``.
 
 ## Acknowledgements
 
