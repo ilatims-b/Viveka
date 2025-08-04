@@ -43,6 +43,11 @@ python flow.py --model_name gemma-2 --ds_path data_tqa/gemma-2_ans_avg_seed0_tes
 * Use ``--truthflow`` for evaluating truthflow intervened model responses or ``-base`` for evaluating unintervened model responses.
 * Mention ``--train`` if u want to train flow model. For evaluation ignore.
 
+## Hyperparameter tuning
+
+If you have stored the data_{ds_name} and {model_name}_{ds_name}_results folders locally with the required files (got by creating dataset and training flow model) then u can upload with these folders in the same Mod_TruthFlow directory in 
+colab and run flow.py without mentioning ``--train`` and ``--num_epocs``.
+
 ## Acknowledgements
 
 This work builds upon several open source projects. In particular:
