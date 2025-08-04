@@ -5,7 +5,7 @@ This repository contains the source code and instructions to reproduce the resul
 All the errors have been rectified!
 
 ## Setup
-Create an ipynb file in colab or kaggle, and use the demo.ipynb as a reference for using this repo on colab or kaggle
+Create an ipynb file in colab, and use the demo.ipynb as a reference for using this repo on colab
 
 You can use the required commands (for dataset creation, or flow model training) and comment out the other commands in the cell (as shown in demo.ipynb)
 
