@@ -15,7 +15,7 @@ class Hook:
         self.out = module_outputs[0] if isinstance(module_outputs, tuple) else module_outputs
 
 def get_resid_acts(statements, correct_answers, tokenizer, model, layers, layer_indices, device, num_generations=30, enable_llm_extraction=False):
-    """Fixed version with proper attention mask handling"""
+    """Fixed version with proper hook management to prevent random missing activations"""
     model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
    
     # Set pad token if not set
@@ -25,14 +25,6 @@ def get_resid_acts(statements, correct_answers, tokenizer, model, layers, layer_
         else:
             tokenizer.add_special_tokens({'pad_token': '<pad>'})
             model.resize_token_embeddings(len(tokenizer))
-   
-    # Hook into residual stream
-    residual_hooks = {}
-    handles = []
-    for l in layer_indices:
-        hook = Hook()
-        handles.append(layers[l].register_forward_hook(hook))
-        residual_hooks[l] = hook
     
     prompts = create_prompts(statements, model_name)
    
@@ -54,7 +46,7 @@ def get_resid_acts(statements, correct_answers, tokenizer, model, layers, layer_
         stmt_exact_answers = []
         
         for gen_idx in range(num_generations):
-            # Generate single answer with fixed function
+            # Generate single answer
             model_answers_raw, generated_ids_list = generate_model_answers(
                 [prompt], model, tokenizer, device, model_name, max_new_tokens=64,
                 stopping_criteria=stopping_criteria
@@ -75,61 +67,78 @@ def get_resid_acts(statements, correct_answers, tokenizer, model, layers, layer_
             
             stmt_exact_answers.append(exact_answer_str)
             
-            # print(f"Debug: stmt_idx={stmt_idx}, gen_idx={gen_idx}, exact_answer_str='{exact_answer_str}'")
-
             # Extract activations if we have an exact answer OR if it's "NO ANSWER"
             if exact_answer_str or exact_answer_str == "NO ANSWER":
-                # Tokenize the original prompt with attention mask
-                inputs = tokenizer(prompt, return_tensors="pt", add_special_tokens=True).to(device)
                 
-                # Create full sequence for activation extraction
-                full_sequence = t.cat([inputs['input_ids'], generated_ids.unsqueeze(0).to(device)], dim=1)
+                # CRITICAL FIX: Create fresh hooks for EACH activation extraction
+                residual_hooks = {}
+                handles = []
+                for l in layer_indices:
+                    hook = Hook()
+                    handles.append(layers[l].register_forward_hook(hook))
+                    residual_hooks[l] = hook
                 
-                # Handle "NO ANSWER" case vs regular answer case
-                if exact_answer_str == "NO ANSWER":
-                    # Use the last token (-1) for "NO ANSWER" cases
-                    adjusted_indices = t.tensor([full_sequence.shape[1] - 1], device=device)
-                else:
-                    # Regular case: find answer tokens
-                    answer_token_indices = find_answer_token_indices_by_string_matching(
-                        tokenizer, generated_ids, inputs['input_ids'].squeeze(), exact_answer_str
-                    )
-                    # if exact_answer_str != "NO ANSWER":
-                    #     print(f"  answer_token_indices: {answer_token_indices}")
-                    #     print(f"  inputs shape: {inputs['input_ids'].shape}")
-                    #     print(f"  generated_ids shape: {generated_ids.shape}")
+                try:
+                    # Tokenize the original prompt with attention mask
+                    inputs = tokenizer(prompt, return_tensors="pt", add_special_tokens=True).to(device)
                     
-                    if answer_token_indices is not None:
-                        # Adjust indices for full sequence - convert to tensor and add offset
-                        if isinstance(answer_token_indices, list):
-                            adjusted_indices = [idx + inputs['input_ids'].shape[1] for idx in answer_token_indices]
-                            adjusted_indices = t.tensor(adjusted_indices, device=device)
-                        else:
-                            adjusted_indices = answer_token_indices + inputs['input_ids'].shape[1]
+                    # Create full sequence for activation extraction
+                    full_sequence = t.cat([inputs['input_ids'], generated_ids.unsqueeze(0).to(device)], dim=1)
+                    
+                    # Handle "NO ANSWER" case vs regular answer case
+                    if exact_answer_str == "NO ANSWER":
+                        # Use the last token (-1) for "NO ANSWER" cases
+                        adjusted_indices = t.tensor([full_sequence.shape[1] - 1], device=device)
                     else:
-                        adjusted_indices = None
-                
-                # Extract activations if we have valid indices
-                if adjusted_indices is not None:
-                    with t.no_grad():
-                        # Run model with proper attention mask
-                        attention_mask = t.ones_like(full_sequence)
-                        model(full_sequence, attention_mask=attention_mask)
+                        # Regular case: find answer tokens
+                        answer_token_indices = find_answer_token_indices_by_string_matching(
+                            tokenizer, generated_ids, inputs['input_ids'].squeeze(), exact_answer_str
+                        )
+                        
+                        if answer_token_indices is not None:
+                            # Adjust indices for full sequence - convert to tensor and add offset
+                            if isinstance(answer_token_indices, list):
+                                adjusted_indices = [idx + inputs['input_ids'].shape[1] for idx in answer_token_indices]
+                                adjusted_indices = t.tensor(adjusted_indices, device=device)
+                            else:
+                                adjusted_indices = answer_token_indices + inputs['input_ids'].shape[1]
+                        else:
+                            adjusted_indices = None
                     
-                    # Extract residual stream activations
-                    for l in layer_indices:
-                        try:
-                            residual_out = residual_hooks[l].out[0][adjusted_indices].mean(dim=0).detach()
-                            acts[l].append(residual_out)
-                        except IndexError:
-                            print(f"IndexError on layer {l} for statement {stmt_idx}, generation {gen_idx}")
-                            
-                        # if adjusted_indices is not None:
-                        #     print(f"  ✓ Extracted activation for layer {l}")
-                        # else:
-                        #     print(f"  ✗ Failed to extract activation - adjusted_indices is None")
-
-                            break
+                    # Extract activations if we have valid indices
+                    if adjusted_indices is not None:
+                        with t.no_grad():
+                            # Run model with proper attention mask
+                            attention_mask = t.ones_like(full_sequence)
+                            model(full_sequence, attention_mask=attention_mask)
+                        
+                        # Extract residual stream activations - NOW the hooks are guaranteed fresh
+                        activations_extracted = True
+                        for l in layer_indices:
+                            try:
+                                # Check if hook actually captured something
+                                if residual_hooks[l].out is None:
+                                    print(f"⚠️ Hook {l} didn't capture - retrying...")
+                                    activations_extracted = False
+                                    break
+                                
+                                residual_out = residual_hooks[l].out[0][adjusted_indices].mean(dim=0).detach()
+                                acts[l].append(residual_out)
+                            except (IndexError, TypeError) as e:
+                                print(f"❌ Error extracting layer {l} for stmt {stmt_idx}, gen {gen_idx}: {e}")
+                                activations_extracted = False
+                                break
+                        
+                        if not activations_extracted:
+                            # Remove partial activations if any layer failed
+                            for l in layer_indices:
+                                if acts[l] and len(acts[l]) > 0:
+                                    acts[l].pop()  # Remove the last added activation
+                
+                finally:
+                    # CRITICAL: Always clean up hooks immediately after each extraction
+                    for h in handles:
+                        h.remove()
         
         # Store lists of answers for this statement
         batch_model_answers.append(stmt_model_answers)
@@ -142,9 +151,5 @@ def get_resid_acts(statements, correct_answers, tokenizer, model, layers, layer_
             acts[k] = t.stack(acts[k]).cpu().float()
         else: 
             del acts[k]
-    
-    # Clean up hooks
-    for h in handles: 
-        h.remove()
        
     return acts, batch_correctness, batch_model_answers, batch_exact_answers
