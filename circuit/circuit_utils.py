@@ -79,8 +79,8 @@ def extract_activations(model: HookedTransformer, prompt: str, filename: Optiona
 # LOGIT LENS
 # =====================================================================================
 
-def logit_lens(model: HookedTransformer, activations: Float[torch.Tensor, '... d_model']
-               )-> Float[torch.Tensor, '... vocab_size']:
+def logit_lens(model: HookedTransformer, activations: Float[torch.Tensor, '... d_model'],
+               norm: bool = False, p: float = 2)-> Float[torch.Tensor, '... vocab_size']:
     """
     Projects hidden activations to vocabulary logits using final LayerNorm and unembedding.
 
@@ -90,6 +90,11 @@ def logit_lens(model: HookedTransformer, activations: Float[torch.Tensor, '... d
         The model providing projection layers.
     activations : torch.Tensor
         Tensor of shape [..., d_model] representing intermediate activations.
+    norm : bool
+        Whether to normalize the unembedding matrix or not (for NormedLens)
+    p : float
+        The parameter for normalizing the unembedding matrix using p-norm.
+        Considered only if `norm=True`
 
     Returns
     -------
@@ -102,12 +107,15 @@ def logit_lens(model: HookedTransformer, activations: Float[torch.Tensor, '... d
 
     # Apply layer normalization and unembedding
     normalized = model.ln_final(activations)
-    logits = model.unembed(normalized)
+    if norm:
+        logits = normalized @ F.normalize(model.W_U, p=p, dim=0)
+    else:
+        logits = model.unembed(normalized)
 
     return logits
 
 def plot_top_k(model: HookedTransformer, cache_data: Dict, hook_name: str,
-               token_pos: int, k: int = 10):
+               token_pos: int, k: int = 10, norm: bool = False, p: float = 2):
     """
     Visualizes top-k predicted tokens and their probabilities for a given layer/hook and token position.
 
@@ -123,10 +131,15 @@ def plot_top_k(model: HookedTransformer, cache_data: Dict, hook_name: str,
         Token position in the sequence.
     k : int, optional
         Number of top predictions to show.
+    norm : bool
+        Whether to normalize the unembedding matrix or not (for NormedLens)
+    p : float
+        The parameter for normalizing the unembedding matrix using p-norm.
+        Considered only if `norm=True`
     """
     # Retrieve activations for the specified hook and token position
     activations = cache_data['activations'][hook_name][token_pos]
-    logits = logit_lens(model, activations)
+    logits = logit_lens(model, activations, norm, p)
 
     # Get top-k logits and their indices
     top_logits, top_indices = torch.topk(logits, k=k)
@@ -167,7 +180,8 @@ def plot_top_k(model: HookedTransformer, cache_data: Dict, hook_name: str,
     print(f"Current Token: '{cache_data['str_tokens'][token_pos]}'")
     print(f"Top prediction: '{tokens[0]}' (prob: {probs[0]:.4f})")
 
-def create_interactive_widget(model: HookedTransformer, cache_data: Dict):
+def create_interactive_widget(model: HookedTransformer, cache_data: Dict,
+                              norm: bool = False, p: float = 2):
     """
     Creates an interactive widget for exploring logit lens predictions across layers and tokens.
 
@@ -177,6 +191,11 @@ def create_interactive_widget(model: HookedTransformer, cache_data: Dict):
         The transformer model.
     cache_data : dict
         Cached activations and tokens.
+    norm : bool
+        Whether to normalize the unembedding matrix or not (for NormedLens)
+    p : float
+        The parameter for normalizing the unembedding matrix using p-norm.
+        Considered only if `norm=True`
     """
     activations = cache_data['activations']
 
@@ -459,6 +478,8 @@ def plot_logit_lens_heatmap(
     cache_data: Dict,
     start: int,
     hook_filter: Union[str, List[str]],
+    norm: bool = False,
+    p: float = 2,
     figsize: Tuple[int, int] = (35, 12)
 ):
     """
@@ -479,6 +500,11 @@ def plot_logit_lens_heatmap(
         `blocks.{layer}.hook_attn_out`, 'resid_post' will pick the layers of the form
         `blocks.{layer}.hook_resid_post`, ['attn', 'mlp'] will pick the layers of both
         the forms `blocks.{layer}.hook_attn_out` and `blocks.{layer}.hook_mlp_out`
+    norm : bool
+        Whether to normalize the unembedding matrix or not (for NormedLens)
+    p : float
+        The parameter for normalizing the unembedding matrix using p-norm.
+        Considered only if `norm=True`
     figsize : tuple of int, optional
         Size of the plot.
 
@@ -519,7 +545,7 @@ def plot_logit_lens_heatmap(
 
     for hook in hooks:
         activations = activations_data[hook]  # shape: [seq_len, d_model]
-        logits = logit_lens(model, activations)  # shape: [seq_len, vocab_size]
+        logits = logit_lens(model, activations, norm, p)  # shape: [seq_len, vocab_size]
 
         probs = F.softmax(logits, dim=-1)  # shape: [seq_len, vocab_size]
         top_probs, top_indices = torch.max(probs, dim=-1)  # shape: [seq_len]
@@ -572,6 +598,8 @@ def plot_token_rank_heatmap(
     tokens: Union[str, List[str]],
     start: int,
     hook_filter: Union[str, List[str]],
+    norm: bool = False,
+    p: float = 2,
     figsize: Tuple[int, int] = (35, 12)
 ):
     """
@@ -594,6 +622,11 @@ def plot_token_rank_heatmap(
         `blocks.{layer}.hook_attn_out`, 'resid_post' will pick the layers of the form
         `blocks.{layer}.hook_resid_post`, ['attn', 'mlp'] will pick the layers of both
         the forms `blocks.{layer}.hook_attn_out` and `blocks.{layer}.hook_mlp_out`
+    norm : bool
+        Whether to normalize the unembedding matrix or not (for NormedLens)
+    p : float
+        The parameter for normalizing the unembedding matrix using p-norm.
+        Considered only if `norm=True`
     figsize : tuple of int, optional
         Size of the figure.
 
@@ -643,7 +676,7 @@ def plot_token_rank_heatmap(
 
     for hook in hooks:
         activations = activations_data[hook]  # shape: [seq_len, d_model]
-        logits = logit_lens(model, activations)  # shape: [seq_len, vocab_size]
+        logits = logit_lens(model, activations, norm, p)  # shape: [seq_len, vocab_size]
 
         # Computing the rank and annotations
         sorted_indices = logits.argsort(dim=-1, descending=True)
