@@ -1,0 +1,94 @@
+{
+  "citation": "",
+  "description": "",
+  "features": {
+    "correct_answers": {
+      "feature": {
+        "dtype": "string",
+        "_type": "Value"
+      },
+      "_type": "Sequence"
+    },
+    "incorrect_answers": {
+      "feature": {
+        "dtype": "string",
+        "_type": "Value"
+      },
+      "_type": "Sequence"
+    },
+    "question": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "template_q": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "category": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "y_win_layer18": {
+      "feature": {
+        "feature": {
+          "dtype": "float16",
+          "_type": "Value"
+        },
+        "_type": "Sequence"
+      },
+      "_type": "Sequence"
+    },
+    "y_lose_layer18": {
+      "feature": {
+        "feature": {
+          "dtype": "float16",
+          "_type": "Value"
+        },
+        "_type": "Sequence"
+      },
+      "_type": "Sequence"
+    },
+    "y_win_layer20": {
+      "feature": {
+        "feature": {
+          "dtype": "float16",
+          "_type": "Value"
+        },
+        "_type": "Sequence"
+      },
+      "_type": "Sequence"
+    },
+    "y_lose_layer20": {
+      "feature": {
+        "feature": {
+          "dtype": "float16",
+          "_type": "Value"
+        },
+        "_type": "Sequence"
+      },
+      "_type": "Sequence"
+    },
+    "y_win_layer22": {
+      "feature": {
+        "feature": {
+          "dtype": "float16",
+          "_type": "Value"
+        },
+        "_type": "Sequence"
+      },
+      "_type": "Sequence"
+    },
+    "y_lose_layer22": {
+      "feature": {
+        "feature": {
+          "dtype": "float16",
+          "_type": "Value"
+        },
+        "_type": "Sequence"
+      },
+      "_type": "Sequence"
+    }
+  },
+  "homepage": "",
+  "license": ""
+}
