@@ -243,7 +243,7 @@ def create_interactive_widget(model: HookedTransformer, cache_data: Dict,
 
     # Create interactive plot
     def update_plot(layer, hook_name, token_position, k):
-        plot_top_k(model, cache_data, f'blocks.{layer}.{hook_name}', token_position, k)
+        plot_top_k(model, cache_data, f'blocks.{layer}.{hook_name}', token_position, k, norm, p)
 
     # Display widgets
     widgets.interact(update_plot, layer=layer_slider, hook_name=hook_dropdown,
@@ -584,7 +584,7 @@ def plot_logit_lens_heatmap(
     # Set labels and title
     ax.set_xlabel('Token Position')
     ax.set_ylabel('Layer')
-    ax.set_title('Logit Lens: Top Predictions Across Layers')
+    ax.set_title(f'Logit Lens{f" ({p}-Normed)" if norm else ""}: Top Predictions Across Layers')
 
     # Avoid font warnings
     warnings.filterwarnings("ignore", message="Glyph.*missing from current font")
