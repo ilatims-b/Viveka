@@ -1,150 +1,147 @@
-from utils import encode, generate, create_prompts, generate_model_answers, check_correctness, find_exact_answer_simple, extract_answer_direct, is_vague_or_non_answer, extract_answer_with_llm, _cleanup_extracted_answer, load_model, load_statements, StopOnTokens, find_answer_token_indices_by_string_matching, tokenize, try_llm_extraction
-import argparse
-from tqdm import tqdm
+import json
 import os
-import glob
-from thefuzz import process, fuzz
-from transformers import (AutoTokenizer, AutoModelForCausalLM, LlamaTokenizer,
-                          LlamaForCausalLM, StoppingCriteria, StoppingCriteriaList)
+from tqdm import tqdm
 import torch as t
-import torch
 
+# All necessary imports from utils.py are retained
+from utils import (create_prompts, generate_model_answers, check_correctness)
+
+# The Hook class is unchanged and necessary for this task.
 class Hook:
-    def __init__(self): self.out = None
+    def __init__(self): 
+        self.out = None
     def __call__(self, module, module_inputs, module_outputs):
         self.out = module_outputs[0] if isinstance(module_outputs, tuple) else module_outputs
 
-def get_resid_acts(statements, correct_answers, tokenizer, model, layers, layer_indices, device, num_generations=30, enable_llm_extraction=False):
-    """Fixed version with proper attention mask handling"""
-    model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
-   
-    # Set pad token if not set
-    if tokenizer.pad_token is None:
-        if tokenizer.eos_token is not None:
-            tokenizer.pad_token = tokenizer.eos_token
+def probe_truth_representation(
+    statements, 
+    correct_answers, 
+    tokenizer, 
+    model, 
+    layers, 
+    layer_indices, 
+    device, 
+    num_generations=30, 
+    output_dir="probes_data"
+):
+    """
+    Generates responses, appends 'True'/'False', and extracts last-token activations.
+    
+    For each statement, this function:
+    1. Generates `num_generations` answers (or loads from cache).
+    2. For each answer, creates two new prompts: one ending in 'True', one in 'False'.
+    3. Runs a batch of (num_generations * 2) prompts through the model.
+    4. Captures the last-token activation for each prompt at specified layers.
+    5. Saves the activations and a corresponding label tensor to a .pt file for each layer(batch of 60).
+    """
+    model_name = model.name_or_path.replace("/", "_") if hasattr(model, 'name_or_path') else 'unknown'
+    
+    # --- Setup output directories ---
+    generations_dir = os.path.join(output_dir, "generations")
+    activations_dir = os.path.join(output_dir, "activations", model_name)
+    os.makedirs(generations_dir, exist_ok=True)
+    os.makedirs(activations_dir, exist_ok=True)
+    
+    generations_cache_path = os.path.join(generations_dir, f"{model_name}_generations.json")
+
+    # --- Caching Logic for initial generations ---
+    if os.path.exists(generations_cache_path):
+        with open(generations_cache_path, 'r', encoding='utf-8') as f:
+            generations_cache = json.load(f)
+    else:
+        generations_cache = {}
+
+    # --- Hook setup is required for activation capture ---
+    residual_hooks = {l: Hook() for l in layer_indices}
+    handles = [layers[l].register_forward_hook(residual_hooks[l]) for l in layer_indices]
+    
+    # Main loop over each statement
+    for stmt_idx, (stmt, correct_ans) in enumerate(tqdm(
+        zip(statements, correct_answers), 
+        desc="Probing Truth Representation", 
+        total=len(statements)
+    )):
+        
+        # --- Part 1: Get initial 30 generations (from cache or new) ---
+        if stmt in generations_cache:
+            generation_data = generations_cache[stmt]
         else:
-            tokenizer.add_special_tokens({'pad_token': '<pad>'})
-            model.resize_token_embeddings(len(tokenizer))
-   
-    # Hook into residual stream
-    residual_hooks = {}
-    handles = []
-    for l in layer_indices:
-        hook = Hook()
-        handles.append(layers[l].register_forward_hook(hook))
-        residual_hooks[l] = hook
-    
-    prompts = create_prompts(statements, model_name)
-   
-    stop_tokens = ['\n', '<end_of_turn>', '<eos>']
-    stop_ids = set([tokenizer.encode(st, add_special_tokens=False)[-1] for st in stop_tokens])
-    stopping_criteria = StoppingCriteriaList([StopOnTokens(list(stop_ids))])
-   
-    # Simplified activation storage - one entry per layer
-    acts = {l: [] for l in layer_indices}
-    batch_correctness, batch_model_answers, batch_exact_answers = [], [], []
-    
-    for stmt_idx, (stmt, prompt, correct_ans) in enumerate(tqdm(zip(statements, prompts, correct_answers), 
-                                                                desc="Processing statements", 
-                                                                total=len(statements), leave=False)):
+            # Create the initial prompt for the statement
+            prompt = create_prompts([stmt], model_name)[0]
+            
+            # Generate 30 answers for the prompt
+            generated_texts = []
+            for _ in range(num_generations):
+                answer_raw, _ = generate_model_answers(
+                    [prompt], model, tokenizer, device, model_name, max_new_tokens=64
+                )
+                generated_texts.append(answer_raw[0].strip())
+            
+            # Label correctness for each generated answer
+            ground_truth_labels = [check_correctness(text, correct_ans) for text in generated_texts]
+            
+            generation_data = {
+                "prompt": prompt,
+                "generated_answers": generated_texts,
+                "ground_truth_labels": ground_truth_labels
+            }
+            generations_cache[stmt] = generation_data
         
-        # Generate multiple answers for the same prompt
-        stmt_model_answers = []
-        stmt_correctness = []
-        stmt_exact_answers = []
+        # --- Part 2: Create stimuli and final labels for probing ---
+        appended_prompts = []
+        final_labels = []
         
-        for gen_idx in range(num_generations):
-            # Generate single answer with fixed function
-            model_answers_raw, generated_ids_list = generate_model_answers(
-                [prompt], model, tokenizer, device, model_name, max_new_tokens=64,
-                stopping_criteria=stopping_criteria
-            )
+        base_prompt = generation_data["prompt"]
+        for answer_text, ground_truth in zip(generation_data["generated_answers"], generation_data["ground_truth_labels"]):
+            # Create the two variations for each generated answer
+            prompt_true = f"{base_prompt} {answer_text} True"
+            prompt_false = f"{base_prompt} {answer_text} False"
             
-            model_answer_text = model_answers_raw[0].strip()
-            generated_ids = generated_ids_list[0]
+            appended_prompts.extend([prompt_true, prompt_false])
             
-            stmt_model_answers.append(model_answer_text)
-            is_correct = check_correctness(model_answer_text, correct_ans)
-            stmt_correctness.append(is_correct)
-            
-            exact_answer_str = find_exact_answer_simple(model_answer_text, correct_ans)
-            
-            # Use LLM extraction if needed
-            if not exact_answer_str and enable_llm_extraction:
-                exact_answer_str = extract_answer_with_llm(stmt, model_answer_text, model, tokenizer)
-            
-            stmt_exact_answers.append(exact_answer_str)
-            
-            # print(f"Debug: stmt_idx={stmt_idx}, gen_idx={gen_idx}, exact_answer_str='{exact_answer_str}'")
+            # Apply the labeling logic: (ground_truth, NOT(ground_truth))
+            final_labels.extend([ground_truth, 1 - ground_truth])
 
-            # Extract activations if we have an exact answer OR if it's "NO ANSWER"
-            if exact_answer_str or exact_answer_str == "NO ANSWER":
-                # Tokenize the original prompt with attention mask
-                inputs = tokenizer(prompt, return_tensors="pt", add_special_tokens=True).to(device)
-                
-                # Create full sequence for activation extraction
-                full_sequence = t.cat([inputs['input_ids'], generated_ids.unsqueeze(0).to(device)], dim=1)
-                
-                # Handle "NO ANSWER" case vs regular answer case
-                if exact_answer_str == "NO ANSWER":
-                    # Use the last token (-1) for "NO ANSWER" cases
-                    adjusted_indices = t.tensor([full_sequence.shape[1] - 1], device=device)
-                else:
-                    # Regular case: find answer tokens
-                    answer_token_indices = find_answer_token_indices_by_string_matching(
-                        tokenizer, generated_ids, inputs['input_ids'].squeeze(), exact_answer_str
-                    )
-                    # if exact_answer_str != "NO ANSWER":
-                    #     print(f"  answer_token_indices: {answer_token_indices}")
-                    #     print(f"  inputs shape: {inputs['input_ids'].shape}")
-                    #     print(f"  generated_ids shape: {generated_ids.shape}")
-                    
-                    if answer_token_indices is not None:
-                        # Adjust indices for full sequence - convert to tensor and add offset
-                        if isinstance(answer_token_indices, list):
-                            adjusted_indices = [idx + inputs['input_ids'].shape[1] for idx in answer_token_indices]
-                            adjusted_indices = t.tensor(adjusted_indices, device=device)
-                        else:
-                            adjusted_indices = answer_token_indices + inputs['input_ids'].shape[1]
-                    else:
-                        adjusted_indices = None
-                
-                # Extract activations if we have valid indices
-                if adjusted_indices is not None:
-                    with t.no_grad():
-                        # Run model with proper attention mask
-                        attention_mask = t.ones_like(full_sequence)
-                        model(full_sequence, attention_mask=attention_mask)
-                    
-                    # Extract residual stream activations
-                    for l in layer_indices:
-                        try:
-                            residual_out = residual_hooks[l].out[0][adjusted_indices].mean(dim=0).detach()
-                            acts[l].append(residual_out)
-                        except IndexError:
-                            print(f"IndexError on layer {l} for statement {stmt_idx}, generation {gen_idx}")
-                            
-                        # if adjusted_indices is not None:
-                        #     print(f"  ✓ Extracted activation for layer {l}")
-                        # else:
-                        #     print(f"  ✗ Failed to extract activation - adjusted_indices is None")
-
-                            break
+        # --- Part 3: Batch process and capture activations ---
+        # Tokenize the entire batch of 60 prompts
+        inputs = tokenizer(appended_prompts, padding=True, truncation=True, return_tensors="pt").to(device)
         
-        # Store lists of answers for this statement
-        batch_model_answers.append(stmt_model_answers)
-        batch_correctness.append(stmt_correctness)
-        batch_exact_answers.append(stmt_exact_answers)
-    
-    # Stack activations
-    for k in list(acts.keys()):
-        if acts[k]: 
-            acts[k] = t.stack(acts[k]).cpu().float()
-        else: 
-            del acts[k]
-    
-    # Clean up hooks
+        # Run a single forward pass for the entire batch to trigger hooks
+        with t.no_grad():
+            model(**inputs)
+
+        # The sequence length of the padded batch
+        seq_len = inputs['input_ids'].shape[1]
+
+        # For each layer, extract the activations and save them with labels
+        for l_idx in layer_indices:
+            # The hook now contains the batched output: [60, seq_len, hidden_size]
+            all_layer_acts = residual_hooks[l_idx].out
+            
+            # Extract the activation for the last non-padded token of each item in the batch
+            # We use attention_mask to find the length of each sequence
+            sequence_lengths = inputs['attention_mask'].sum(dim=1)
+            last_token_indices = sequence_lengths - 1
+            
+            # Use advanced indexing to get all last-token activations at once
+            last_token_activations = all_layer_acts[t.arange(len(all_layer_acts)), last_token_indices]
+            
+            # --- Part 4: Save the data for this layer and statement ---
+            save_path = os.path.join(activations_dir, f"layer_{l_idx}_stmt_{stmt_idx}.pt")
+            
+            # Save activations and labels together in a dictionary
+            data_to_save = {
+                'activations': last_token_activations.cpu(),
+                'labels': t.tensor(final_labels, dtype=t.int).cpu()
+            }
+            t.save(data_to_save, save_path)
+
+    # --- Final Step: Clean up hooks and save the generation cache ---
     for h in handles: 
         h.remove()
-       
-    return acts, batch_correctness, batch_model_answers, batch_exact_answers
+        
+    with open(generations_cache_path, 'w', encoding='utf-8') as f:
+        json.dump(generations_cache, f, indent=2, ensure_ascii=False)
+
+    print(f"Processing complete. Generations cached at '{generations_cache_path}'.")
+    print(f"Activation probes saved in '{activations_dir}'.")

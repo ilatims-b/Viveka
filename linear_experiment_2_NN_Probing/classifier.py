@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from torch.utils.tensorboard import SummaryWriter
-
+from sklearn.datasets import make_classification
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     classification_report, 
@@ -16,6 +16,8 @@ from sklearn.metrics import (
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+import itertools
+import io
 from tqdm import tqdm
 import time
 import numpy as np
@@ -35,6 +37,7 @@ class HParams:
     num_epochs = 3
     warmup_steps = 100
     model_name = 'gemma-2-2b-it'
+    logdir = 'runs/synth'
 
 
 hparams = HParams()
@@ -54,16 +57,32 @@ class ProbingNetwork(nn.Module):
         )
 
     def forward(self, x):
-        print(f'Using model: {self.model_name}')
+        #print(f'Using model: {self.model_name}')
         return self.net(x)
 
 
 model = ProbingNetwork(hparams.model_name).to(device)
 
 # Sample Data 
-X = torch.randn(1000, hparams.input_dim).float()
-y = torch.randint(0, 2, (1000,)).float().unsqueeze(1)
+X, y = make_classification(
+    n_samples=100_000,
+    n_features=hparams.input_dim,
+    n_informative=40,
+    n_redundant=0,
+    n_repeated=0,
+    n_classes=2,
+    class_sep=2.5,
+    flip_y=0.02,
+    random_state=42
+)
 
+X = torch.tensor(X, dtype=torch.float32)
+y = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
+
+'''
+X = torch.randn(100000, hparams.input_dim).float()
+y = torch.randint(0, 2, (100000,)).float().unsqueeze(1)
+'''
 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, stratify=y)
 
 train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=hparams.batch_size, shuffle=True)
@@ -86,7 +105,7 @@ def lr_lambda(current_step):
 scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
-writer = SummaryWriter(log_dir="runs/probing_run")
+writer = SummaryWriter(log_dir=hparams.logdir)
 
 
 def log_confusion_matrix(writer, labels, preds, epoch, class_names=['0', '1']):
@@ -183,3 +202,6 @@ for epoch in range(hparams.num_epochs):
     log_confusion_matrix(writer, val_labels, val_preds, epoch)
 
 writer.close()
+
+if 'name' == "__main__"():
+    
