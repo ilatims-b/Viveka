@@ -548,6 +548,8 @@ def plot_logit_lens_heatmap(
         logits = logit_lens(model, activations, norm, p)  # shape: [seq_len, vocab_size]
 
         probs = F.softmax(logits, dim=-1)  # shape: [seq_len, vocab_size]
+        if norm:
+            probs = torch.log(probs)
         top_probs, top_indices = torch.max(probs, dim=-1)  # shape: [seq_len]
 
         top_tokens = model.to_str_tokens(top_indices, prepend_bos=False)
@@ -566,7 +568,7 @@ def plot_logit_lens_heatmap(
         annot=pred_matrix,
         fmt='',
         cmap='viridis',
-        cbar_kws={'label': 'Prediction Probability'},
+        cbar_kws={'label': f'Prediction {"Log-p" if norm else "P"}robability'},
         xticklabels=[f'Pos {i}' for i in range(start, seq_len)],
         yticklabels=[f"Layer {' '.join(hook.split('.')[1:])}" for hook in hooks],
         ax=ax
