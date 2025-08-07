@@ -16,9 +16,9 @@ from utils import (
 )
 # Import both pipelines
 from hook import get_resid_acts
-from probe_module import probe_truth_representation
+from hook.py import probe_truth_representation
 # Probing network
-from probing_model import ProbingNetwork, hparams
+from classifier.py import ProbingNetwork, hparams
 
 
 def load_activation_dataset(activations_dir):
