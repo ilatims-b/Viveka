@@ -203,5 +203,6 @@ for epoch in range(hparams.num_epochs):
 
 writer.close()
 
-if 'name' == "__main__"():
+if __name__ == "__main__":
+    main()
     
