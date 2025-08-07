@@ -140,7 +140,7 @@ def get_truth_probe_activations(
         output_exists = all(os.path.exists(os.path.join(activations_dir, f"layer_{l_idx}_stmt_{stmt_idx}_.pt")) for l_idx in layer_indices)
         if output_exists:
             continue
-
+        
         generation_data = generations_cache[stmt]
 
         # --- Create the probing prompts and their corresponding final labels ---
