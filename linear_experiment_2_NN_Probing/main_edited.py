@@ -1,3 +1,4 @@
+from utils import (load_model, load_statements)
 import argparse
 import glob
 import os
@@ -5,27 +6,21 @@ import torch as t
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-# Standard utilities from your utils.py file
-from utils import (
-    load_model,
-    load_statements
-)
-# Import the NEW DECOUPLED pipeline functions from the modified hook.py
+# Import the DECOUPLED pipeline functions from the modified hook.py
 from hook import generate_and_label_answers, get_truth_probe_activations
-# Import the training and data loading functions that were already in your main script
+# Import the training and data loading functions
 from classifier import ProbingNetwork, hparams
 
 def load_activation_dataset(activations_dir):
     """
     Load all .pt files from an activations directory into a single TensorDataset.
-    This function is unchanged and correctly aggregates all generated activation files.
     """
     activations_list, labels_list = [], []
-    # Glob for all .pt files for any layer and any statement
+    # Added tqdm to the file loading process
     for fname in tqdm(glob.glob(os.path.join(activations_dir, 'layer_*_stmt_*.pt')), desc="Loading activation files"):
         data = t.load(fname)
-        activations_list.append(data['activations'])  # Shape: [batch, dim]
-        labels_list.append(data['labels'])             # Shape: [batch]
+        activations_list.append(data['activations'])
+        labels_list.append(data['labels'])
     
     if not activations_list:
         return None
@@ -38,7 +33,6 @@ def load_activation_dataset(activations_dir):
 def train_probing_network(dataset_dir, device):
     """
     Instantiate and train a ProbingNetwork on the saved activations.
-    This function is also unchanged.
     """
     model_name_safe = hparams.model_name.replace('/', '_')
     activations_dir = os.path.join(dataset_dir, 'activations', model_name_safe)
@@ -50,7 +44,6 @@ def train_probing_network(dataset_dir, device):
         print("No activation data found. Skipping training.")
         return
 
-    # Standard train/validation split
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     train_ds, val_ds = t.utils.data.random_split(dataset, [train_size, val_size])
@@ -58,17 +51,15 @@ def train_probing_network(dataset_dir, device):
     train_loader = DataLoader(train_ds, batch_size=hparams.batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=hparams.batch_size)
 
-    # Initialize model, optimizer, and loss function from your classifier.py
     model = ProbingNetwork(hparams.model_name).to(device)
     optimizer = t.optim.Adam(model.parameters(), lr=hparams.lr)
     criterion = t.nn.BCELoss()
     scheduler = t.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, total_iters=hparams.warmup_steps)
 
     print("Starting training of the probing network...")
-    # Standard training loop
     for epoch in range(hparams.num_epochs):
         model.train()
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{hparams.num_epochs} [Training]")
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{hparams.num_epochs} [Training]", leave=False)
         for X_batch, y_batch in pbar:
             X_batch, y_batch = X_batch.to(device), y_batch.to(device)
             optimizer.zero_grad()
@@ -80,11 +71,12 @@ def train_probing_network(dataset_dir, device):
                  scheduler.step()
             pbar.set_postfix({'loss': loss.item()})
         
-        # Validation loop
         model.eval()
         val_loss, correct, total = 0, 0, 0
         with t.no_grad():
-            for X_batch, y_batch in val_loader:
+            # MODIFICATION: Added tqdm to the validation loop
+            val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{hparams.num_epochs} [Validation]", leave=False)
+            for X_batch, y_batch in val_pbar:
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 outputs = model(X_batch)
                 val_loss += criterion(outputs, y_batch).item()
@@ -103,13 +95,17 @@ if __name__ == '__main__':
         description="Run a multi-stage pipeline to generate data and train a truth probe."
     )
     # --- Core Arguments ---
+    parser.add_argument('--dataset_path', type=str, required=True, help="Path to the dataset CSV file.")
     parser.add_argument('--model_repo_id', type=str, required=True, help="Hugging Face model repository ID.")
-    parser.add_argument('--datasets', nargs='+', required=True, help="List of datasets to process (e.g., 'triviaqa') or 'all'.")
     parser.add_argument('--device', type=str, default='cuda' if t.cuda.is_available() else 'cpu')
     
     # --- Pipeline Stage Control ---
     parser.add_argument('--stage', type=str, choices=['generate', 'activate', 'train', 'all'], default='all', 
-                        help="Which stage of the probing pipeline to run: 'generate' answers, 'activate' to get activations, 'train' the probe, or 'all' to run sequentially.")
+                        help="Which stage of the probing pipeline to run.")
+
+    # --- Arguments for Parallelization ---
+    parser.add_argument('--start-index', type=int, default=0, help="The starting row index of the dataset to process.")
+    parser.add_argument('--end-index', type=int, default=None, help="The ending row index of the dataset to process. Processes to the end if not specified.")
 
     # --- Configuration Arguments ---
     parser.add_argument('--layers', nargs='+', type=int, default=[-1], help="List of layer indices to probe. -1 for all layers.")
@@ -117,7 +113,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_generations', type=int, default=30, help="Number of answers to generate per statement for probing.")
     
     args = parser.parse_args()
-    hparams.model_name = args.model_repo_id # Set model name in hparams for logging
+    hparams.model_name = args.model_repo_id
 
     # --- Model Loading ---
     print(f"Loading model: {args.model_repo_id}...")
@@ -128,42 +124,50 @@ if __name__ == '__main__':
     else:
         layer_indices = args.layers
 
-    # --- Dataset Resolution ---
-    datasets = args.datasets
-    if 'all' in datasets:
-        datasets = [os.path.splitext(os.path.basename(fp))[0]
-                    for fp in glob.glob('datasets/*.csv')]
-        print(f"Resolved 'all' to the following datasets: {datasets}")
+    # --- Dataset Loading and Slicing ---
+    print(f"Loading dataset from: {args.dataset_path}")
+    df, all_statements, all_correct_answers = load_statements(args.dataset_path)
+
+    start = args.start_index
+    end = args.end_index if args.end_index is not None else len(all_statements)
+    
+    if start >= len(all_statements):
+        print(f"Start index {start} is out of bounds for dataset of length {len(all_statements)}. Exiting.")
+        exit()
+    
+    end = min(end, len(all_statements))
+
+    print(f"Processing slice of dataset from index {start} to {end}.")
+    statements_to_process = all_statements[start:end]
+    answers_to_process = all_correct_answers[start:end]
 
     # --- Main Pipeline Execution ---
-    for dataset in datasets:
-        print(f"\n{'='*20}\n=== Processing dataset: {dataset} ===\n{'='*20}")
-        df, statements, correct_answers = load_statements(dataset)
+    # STAGE 1: Generate and Label Answers
+    if args.stage in ['generate', 'all']:
+        generate_and_label_answers(
+            statements=statements_to_process,
+            correct_answers=answers_to_process,
+            tokenizer=tokenizer,
+            model=model,
+            device=args.device,
+            num_generations=args.num_generations,
+            output_dir=args.probe_output_dir
+        )
+    
+    # STAGE 2: Extract Activations
+    if args.stage in ['activate', 'all']:
+        get_truth_probe_activations(
+            statements=statements_to_process,
+            tokenizer=tokenizer,
+            model=model,
+            layers=layer_modules,
+            layer_indices=layer_indices,
+            device=args.device,
+            output_dir=args.probe_output_dir,
+            start_index=start
+        )
 
-        # STAGE 1: Generate and Label Answers
-        if args.stage in ['generate', 'all']:
-            generate_and_label_answers(
-                statements=statements,
-                correct_answers=correct_answers,
-                tokenizer=tokenizer,
-                model=model,
-                device=args.device,
-                num_generations=args.num_generations,
-                output_dir=args.probe_output_dir
-            )
-        
-        # STAGE 2: Extract Activations
-        if args.stage in ['activate', 'all']:
-            get_truth_probe_activations(
-                statements=statements,
-                tokenizer=tokenizer,
-                model=model,
-                layers=layer_modules,
-                layer_indices=layer_indices,
-                device=args.device,
-                output_dir=args.probe_output_dir
-            )
-
-        # STAGE 3: Train Probing Network
-        if args.stage in ['train', 'all']:
-            train_probing_network(args.probe_output_dir, args.device)
+    # STAGE 3: Train Probing Network
+    if args.stage == 'train':
+        print("\nNote: Training should be run after all activation data has been generated.")
+        train_probing_network(args.probe_output_dir, args.device)
