@@ -95,12 +95,12 @@ if __name__ == '__main__':
     activations_dir = os.path.join(args.probe_output_dir, 'activations', args.model_repo_id.replace('/', '_'))
     
     if -1 in args.svd_layers:
-        try:
-            layer_files = glob.glob(os.path.join(activations_dir, 'layer_*_stmt_*.pt'))
-            max_layer = max([int(f.split('layer_')[1].split('_')[0]) for f in layer_files])
-            layer_indices = list(range(max_layer + 1))
-        except (ValueError, IndexError, FileNotFoundError):
-             raise SystemExit("Error: Could not determine number of layers from files. Please specify layers explicitly.")
+        args.svd_layers = [i for i in range(26)]
+            #layer_files = glob.glob(os.path.join(activations_dir, 'layer_*_stmt_*.pt'))
+            #max_layer = max([int(f.split('layer_')[1].split('_')[0]) for f in layer_files])
+            #layer_indices = list(range(max_layer + 1))
+        #except (ValueError, IndexError, FileNotFoundError):
+        #    raise SystemExit("Error: Could not determine number of layers from files. Please specify layers explicitly.")
     else:
         layer_indices = args.svd_layers
 
