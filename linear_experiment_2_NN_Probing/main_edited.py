@@ -201,6 +201,7 @@ if __name__ == '__main__':
     # --- Arguments for Parallelization ---
     parser.add_argument('--start-index', type=int, default=0, help="The starting row index of the dataset to process.")
     parser.add_argument('--end-index', type=int, default=None, help="The ending row index of the dataset to process. Processes to the end if not specified.")
+    parser.add_argument('--gen_batch_size', type=int, default=32, help="Number of statements to process in parallel during generation.")
 
     # --- Configuration Arguments ---
     parser.add_argument('--layers', nargs='+', type=int, default=[-1], help="List of layer indices to probe. -1 for all layers.")
@@ -234,15 +235,22 @@ if __name__ == '__main__':
         answers_to_process = all_correct_answers[start:end]
 
         if args.stage in ['generate', 'all']:
-            generate_and_label_answers(
-                statements=statements_to_process,
-                correct_answers=answers_to_process,
-                tokenizer=tokenizer,
-                model=model,
-                device=args.device,
-                num_generations=args.num_generations,
-                output_dir=args.probe_output_dir
-            )
+            batch_size = args.gen_batch_size
+            for start_idx in range(0, len(statements_to_process), batch_size):
+                end_idx = min(start_idx + batch_size, len(statements_to_process))
+                batch_statements = statements_to_process[start_idx:end_idx]
+                batch_answers = answers_to_process[start_idx:end_idx]
+
+                generate_and_label_answers(
+                    statements=batch_statements,
+                    correct_answers=batch_answers,
+                    tokenizer=tokenizer,
+                    model=model,
+                    device=args.device,
+                    num_generations=args.num_generations,
+                    output_dir=args.probe_output_dir
+                )
+
 
         if args.stage in ['activate', 'all']:
             get_truth_probe_activations(
