@@ -40,9 +40,13 @@ def perform_global_svd(activations_dir, svd_dim, layer_indices, device):
             # Run SVD
             print(f"Running SVD on {full_layer_activations.shape[0]} activations for layer {l_idx}...")
             try:
+                if full_layer_activations.dtype == t.bfloat16:
+                  full_layer_activations = full_layer_activations.to(t.float32)
                 _, _, Vh = t.linalg.svd(full_layer_activations, full_matrices=False)
             except t.cuda.OutOfMemoryError:
                 print(f"CUDA OOM on layer {l_idx}. Falling back to CPU.")
+                if full_layer_activations.dtype == t.bfloat16:
+                  full_layer_activations = full_layer_activations.to(t.float32)
                 _, _, Vh = t.linalg.svd(full_layer_activations.cpu(), full_matrices=False)
                 Vh = Vh.to(device)
 
