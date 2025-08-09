@@ -37,16 +37,20 @@ def perform_global_svd(activations_dir, svd_dim, layer_indices, device):
             activations_list = [t.load(fname)['activations'] for fname in tqdm(all_files, desc=f"Loading L{l_idx} files", leave=False)]
             full_layer_activations = t.cat(activations_list, dim=0).to(device)
 
+            # Save original dtype
+            orig_dtype = full_layer_activations.dtype
+
+            # Convert to float32 for SVD if needed
+            if orig_dtype == t.bfloat16:
+                print(f"Converting layer {l_idx} activations from bfloat16 to float32 for SVD.")
+                full_layer_activations = full_layer_activations.to(t.float32)
+
             # Run SVD
             print(f"Running SVD on {full_layer_activations.shape[0]} activations for layer {l_idx}...")
             try:
-                if full_layer_activations.dtype == t.bfloat16:
-                  full_layer_activations = full_layer_activations.to(t.float32)
                 _, _, Vh = t.linalg.svd(full_layer_activations, full_matrices=False)
             except t.cuda.OutOfMemoryError:
                 print(f"CUDA OOM on layer {l_idx}. Falling back to CPU.")
-                if full_layer_activations.dtype == t.bfloat16:
-                  full_layer_activations = full_layer_activations.to(t.float32)
                 _, _, Vh = t.linalg.svd(full_layer_activations.cpu(), full_matrices=False)
                 Vh = Vh.to(device)
 
@@ -54,20 +58,28 @@ def perform_global_svd(activations_dir, svd_dim, layer_indices, device):
             t.save(projection_matrix.cpu(), projection_matrix_path)
             print(f"Saved SVD projection matrix for layer {l_idx} to {projection_matrix_path}")
 
-        # Now project and save activations individually
-        file_pattern = os.path.join(activations_dir, f'layer_{l_idx}_stmt_*.pt')
-        all_files = glob.glob(file_pattern)
-        for fname in tqdm(all_files, desc=f"Projecting L{l_idx} activations", leave=False):
-            data = t.load(fname)
-            raw_activations = data['activations'].to(device)
-            projected_activations = (projection_matrix @ raw_activations.T).T
+            # Project individual activations
+            for fname in tqdm(all_files, desc=f"Projecting L{l_idx} activations", leave=False):
+                data = t.load(fname)
+                raw_activations = data['activations'].to(device)
 
-            stmt_num = fname.split('_stmt_')[1].split('.pt')[0]
-            save_name = f"layer{l_idx}_stmt{stmt_num}_svd_processed.pt"
-            save_path = os.path.join(projected_dir, save_name)
+                # Ensure projection is done in float32
+                if raw_activations.dtype != t.float32:
+                    raw_activations = raw_activations.to(t.float32)
 
-            t.save({'activations': projected_activations.cpu(), 'labels': data['labels']}, save_path)
+                if projection_matrix.dtype != t.float32:
+                    projection_matrix = projection_matrix.to(t.float32)    
 
+                projected_activations = (projection_matrix @ raw_activations.T).T
+
+                # Cast back to original dtype before saving
+                projected_activations = projected_activations.to(orig_dtype)
+
+                stmt_num = fname.split('_stmt_')[1].split('.pt')[0]
+                save_name = f"layer{l_idx}_stmt{stmt_num}_svd_processed.pt"
+                save_path = os.path.join(projected_dir, save_name)
+
+                t.save({'activations': projected_activations.cpu(), 'labels': data['labels']}, save_path)
 
 if __name__ == '__main__':
     # This block allows you to run this script standalone if you wish
