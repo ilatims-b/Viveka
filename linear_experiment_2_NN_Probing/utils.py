@@ -684,7 +684,7 @@ def load_model(model_repo_id: str, device: str):
     return tokenizer, model, layers
 
 def load_statements(dataset_name):
-    path = f"datasets/{dataset_name}.csv"
+    path = f"{dataset_name}"
     df = pd.read_csv(path, encoding='utf-8')
     question_col = 'statement' if 'statement' in df.columns else 'raw_question'
     label_col = 'label' if 'label' in df.columns else 'correct_answer'
