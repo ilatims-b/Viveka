@@ -80,7 +80,7 @@ if __name__ == '__main__':
     
     if -1 in args.svd_layers:
         try:
-            layer_files = glob.glob(os.path.join(activations_dir, 'layer_*_stmt_0.pt'))
+            layer_files = glob.glob(os.path.join(activations_dir, 'layer_*_stmt_*.pt'))
             max_layer = max([int(f.split('layer_')[1].split('_')[0]) for f in layer_files])
             layer_indices = list(range(max_layer + 1))
         except (ValueError, IndexError, FileNotFoundError):
