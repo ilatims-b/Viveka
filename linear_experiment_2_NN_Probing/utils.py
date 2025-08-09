@@ -128,53 +128,63 @@ def create_prompts(statements, model_name):
     else:
         return statements
 
-def generate_model_answers(prompts, model, tokenizer, device, model_name, max_new_tokens=64, stopping_criteria=None):
+def generate_model_answers(
+    prompts,
+    model,
+    tokenizer,
+    device,
+    model_name,
+    max_new_tokens=64,
+    stopping_criteria=None,
+    num_return_sequences=1
+):
     if tokenizer.pad_token is None:
         if tokenizer.eos_token is not None:
             tokenizer.pad_token = tokenizer.eos_token
-    else:
-            # Add a new pad token if no eos token exists
-        tokenizer.add_special_tokens({'pad_token': '<pad>'})
-        model.resize_token_embeddings(len(tokenizer))
-    
+        else:
+            tokenizer.add_special_tokens({'pad_token': '<pad>'})
+            model.resize_token_embeddings(len(tokenizer))
+
+    # Tokenize all prompts at once
+    inputs = tokenizer(
+        prompts,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        add_special_tokens=True
+    ).to(device)
+
+    # Generate in batch
+    with t.no_grad():
+        generated = model.generate(
+            input_ids=inputs['input_ids'],
+            attention_mask=inputs['attention_mask'],
+            max_new_tokens=max_new_tokens,
+            do_sample=True,
+            temperature=0.7,
+            top_p=0.9,
+            pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            stopping_criteria=stopping_criteria,
+            num_return_sequences=num_return_sequences
+        )
+
+    # Decode outputs
     all_model_answers_raw = []
     all_generated_ids = []
-    
-    for prompt in prompts:
-        # Tokenize with proper attention mask
-        inputs = tokenizer(
-            prompt, 
-            return_tensors="pt", 
-            padding=True, 
-            truncation=True,
-            add_special_tokens=True
-        ).to(device)
-        
-        # Generate with consistent parameters for reproducible results
-        with t.no_grad():
-            generated = model.generate(
-                input_ids=inputs['input_ids'],
-                attention_mask=inputs['attention_mask'],  # This is key!
-                max_new_tokens=max_new_tokens,
-                do_sample=True,  # Enable sampling for variety
-                temperature=0.7,  # Control randomness
-                top_p=0.9,       # Nucleus sampling
-                pad_token_id=tokenizer.pad_token_id,
-                eos_token_id=tokenizer.eos_token_id,
-                stopping_criteria=stopping_criteria,
-                # Optional: set seed for reproducibility
-                # use_cache=True,
-            )
-        
-        # Extract only the newly generated tokens
-        generated_ids = generated[0][inputs['input_ids'].shape[1]:]
-        
-        # Decode the generated text
+
+    # When num_return_sequences > 1, outputs are grouped per prompt
+    batch_size = len(prompts)
+    for i in range(batch_size * num_return_sequences):
+        prompt_idx = i // num_return_sequences
+        input_len = inputs['input_ids'][prompt_idx].shape[0]
+
+        generated_ids = generated[i][input_len:]  # slice to only new tokens
         model_answer_raw = tokenizer.decode(generated_ids, skip_special_tokens=True)
-        
+
         all_model_answers_raw.append(model_answer_raw)
         all_generated_ids.append(generated_ids.cpu())
-    
+
     return all_model_answers_raw, all_generated_ids
 
 
