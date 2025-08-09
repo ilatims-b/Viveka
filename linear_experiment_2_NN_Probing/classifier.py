@@ -1,4 +1,4 @@
-# probing_model.py
+# classifier.py
 
 import torch
 import torch.nn as nn
@@ -61,8 +61,24 @@ class ProbingNetwork(nn.Module):
         return self.net(x)
 
 
-model = ProbingNetwork(hparams.model_name).to(device)
+def lr_lambda(current_step):
+    if current_step < hparams.warmup_steps:
+        return float(current_step) / float(max(1, hparams.warmup_steps))
+    return 1.0
 
+
+def log_confusion_matrix(writer, labels, preds, epoch, class_names=['0', '1']):
+    cm = confusion_matrix(labels, preds)
+    fig, ax = plt.subplots(figsize=(4, 4))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=class_names, yticklabels=class_names)
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("Actual")
+    ax.set_title("Confusion Matrix")
+    writer.add_figure("ConfusionMatrix/val", fig, global_step=epoch)
+    plt.close(fig)
+
+
+'''
 # Sample Data 
 X, y = make_classification(
     n_samples=100_000,
@@ -79,48 +95,38 @@ X, y = make_classification(
 X = torch.tensor(X, dtype=torch.float32)
 y = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
 
-'''
+
 X = torch.randn(100000, hparams.input_dim).float()
 y = torch.randint(0, 2, (100000,)).float().unsqueeze(1)
 '''
-X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, stratify=y)
-
-train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=hparams.batch_size, shuffle=True)
-val_loader = DataLoader(TensorDataset(X_val, y_val), batch_size=hparams.batch_size)
 
 
-hparams.total_steps = len(train_loader) * hparams.num_epochs
+
+#model = ProbingNetwork(hparams.model_name).to(device)
+#X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, stratify=y)
+
+#train_loader = DataLoader(TensorDataset(X_train, y_train), batch_size=hparams.batch_size, shuffle=True)
+#val_loader = DataLoader(TensorDataset(X_val, y_val), batch_size=hparams.batch_size)
 
 
-optimizer = optim.Adam(model.parameters(), lr=hparams.lr)
-criterion = nn.BCELoss()
 
 
-def lr_lambda(current_step):
-    if current_step < hparams.warmup_steps:
-        return float(current_step) / float(max(1, hparams.warmup_steps))
-    return 1.0
+
+#optimizer = optim.Adam(model.parameters(), lr=hparams.lr)
+#criterion = nn.BCELoss()
 
 
-scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
-writer = SummaryWriter(log_dir=hparams.logdir)
+
+#scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+#writer = SummaryWriter(log_dir=hparams.logdir)
 
 
-def log_confusion_matrix(writer, labels, preds, epoch, class_names=['0', '1']):
-    cm = confusion_matrix(labels, preds)
-    fig, ax = plt.subplots(figsize=(4, 4))
-    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=class_names, yticklabels=class_names)
-    ax.set_xlabel("Predicted")
-    ax.set_ylabel("Actual")
-    ax.set_title("Confusion Matrix")
-    writer.add_figure("ConfusionMatrix/val", fig, global_step=epoch)
-    plt.close(fig)
 
 
-step = 0
-
+#step = 0
+'''
 for epoch in range(hparams.num_epochs):
     model.train()
     epoch_loss = 0.0
@@ -203,6 +209,4 @@ for epoch in range(hparams.num_epochs):
 
 writer.close()
 
-if __name__ == "__main__":
-    main()
-    
+'''
