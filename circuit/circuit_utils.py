@@ -1027,7 +1027,6 @@ def plot_patching_experiment(
     """
     n_layers = model.cfg.n_layers
     seq_len = len(cache1['str_tokens'])
-    logit_diffs = np.zeros((n_layers, end - start))
 
     target_pos = cache1['str_tokens'].index('model') + 1 if target_pos is None else target_pos
     word_token1 = word_token1 or cache1['str_tokens'][target_pos + 1]
@@ -1040,6 +1039,7 @@ def plot_patching_experiment(
     assert end <= seq_len
     assert start < end
 
+    logit_diffs = np.zeros((n_layers, end - start))
     for layer in range(n_layers):
         for pos in range(start, end):
             hook = patch(token=pos, layer=layer, kind=kind, patch_cache=cache2['activations'])

@@ -1,10 +1,12 @@
 from utils import load_model, load_statements
 from hook import generate_and_label_answers, get_truth_probe_activations
-from classifier import ProbingNetwork, hparams
+from classifier import ProbingNetwork, hparams, log_confusion_matrix, lr_lambda
 from svd_withgpu import perform_global_svd
-
+from torch.utils.tensorboard import SummaryWriter
 import argparse
 import glob
+from sklearn.metrics import (accuracy_score, confusion_matrix, f1_score, classification_report)
+import time
 import os
 import torch as t
 from torch.utils.data import DataLoader, TensorDataset
@@ -99,15 +101,22 @@ def train_probing_network(dataset_dir, train_layers, device):
 
         train_loader = DataLoader(train_ds, batch_size=hparams.batch_size, shuffle=True)
         val_loader = DataLoader(val_ds, batch_size=hparams.batch_size)
-
+        hparams.total_steps = len(train_loader) * hparams.num_epochs
+        
         model = ProbingNetwork(hparams.model_name).to(device)
         optimizer = t.optim.Adam(model.parameters(), lr=hparams.lr)
         criterion = t.nn.BCELoss()
-        scheduler = t.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, total_iters=hparams.warmup_steps)
+        scheduler = t.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+        writer = SummaryWriter(log_dir=hparams.logdir)
 
         print(f"\n--- Training probe for Layer {l_idx} ---")
+        step = 0
         for epoch in range(hparams.num_epochs):
+            epoch_loss = 0.0
+            train_labels = []
+            train_preds = []
             model.train()
+            start_time = time.time()
             pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{hparams.num_epochs} [Training]", leave=False)
             for X_batch, y_batch in pbar:
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
@@ -118,10 +127,34 @@ def train_probing_network(dataset_dir, train_layers, device):
                 optimizer.step()
                 if scheduler.get_last_lr()[0] < hparams.lr:
                     scheduler.step()
-                pbar.set_postfix({'loss': loss.item()})
+                pbar.set_postfix({'loss': loss.item(), 
+                                  "lr": f"{scheduler.get_last_lr()[0]:.6f}"
+                                  })
+                epoch_loss += loss.item()
+                preds = (outputs > 0.5).float()
+                train_preds.extend(preds.cpu().numpy())
+                train_labels.extend(y_batch.cpu().numpy())
+                step += 1
+            
+            train_acc = accuracy_score(train_labels, train_preds)
+            train_f1 = f1_score(train_labels, train_preds)
+            avg_train_loss = epoch_loss / len(train_loader)
+            elapsed = time.time() - start_time
+            est_remaining = (hparams.num_epochs - (epoch + 1)) * elapsed
+
+            print(f"\nEpoch {epoch+1} completed in {elapsed:.2f}s | Estimated time remaining: {est_remaining:.2f}s")
+            print(f"Train Accuracy: {train_acc:.4f} | F1: {train_f1:.4f}")
+
+            writer.add_scalar("Loss/train", avg_train_loss, epoch)
+            writer.add_scalar("Accuracy/train", train_acc, epoch)
+            writer.add_scalar("F1/train", train_f1, epoch)
+            writer.add_scalar("LR", scheduler.get_last_lr()[0], epoch)
+
 
             # Validation
             model.eval()
+            val_preds = []
+            val_labels = []
             val_loss, correct, total = 0, 0, 0
             with t.no_grad():
                 val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{hparams.num_epochs} [Validation]", leave=False)
@@ -132,9 +165,24 @@ def train_probing_network(dataset_dir, train_layers, device):
                     preds = (outputs > 0.5).float()
                     total += y_batch.size(0)
                     correct += (preds == y_batch).sum().item()
-
+                    val_preds.extend(preds.cpu().numpy())
+                    val_labels.extend(y_batch.cpu().numpy())
+                    val_pbar.set_postfix({
+                    "val_loss": f"{loss.item():.4f}"
+                                        })
+            val_acc = accuracy_score(val_labels, val_preds)
+            val_f1 = f1_score(val_labels, val_preds)
+            avg_val_loss = val_loss / len(val_loader)
             print(f"Layer {l_idx} | Epoch {epoch+1} | Val Loss: {val_loss/len(val_loader):.4f} | Val Acc: {correct/total:.4f}")
+            print(f"Val Accuracy: {val_acc:.4f} | F1: {val_f1:.4f}")
+            print("Classification Report:\n", classification_report(val_labels, val_preds, digits=4))
 
+            writer.add_scalar("Loss/val", avg_val_loss, epoch)
+            writer.add_scalar("Accuracy/val", val_acc, epoch)
+            writer.add_scalar("F1/val", val_f1, epoch)
+            log_confusion_matrix(writer, val_labels, val_preds, epoch)
+
+        writer.close()
         t.save(model.state_dict(), os.path.join(probes_dir, f'probe_model_layer_{l_idx}.pt'))
 
 # === Main Execution Block =========================================
@@ -153,6 +201,7 @@ if __name__ == '__main__':
     # --- Arguments for Parallelization ---
     parser.add_argument('--start-index', type=int, default=0, help="The starting row index of the dataset to process.")
     parser.add_argument('--end-index', type=int, default=None, help="The ending row index of the dataset to process. Processes to the end if not specified.")
+    parser.add_argument('--gen_batch_size', type=int, default=32, help="Number of statements to process in parallel during generation.")
 
     # --- Configuration Arguments ---
     parser.add_argument('--layers', nargs='+', type=int, default=[-1], help="List of layer indices to probe. -1 for all layers.")
@@ -186,15 +235,22 @@ if __name__ == '__main__':
         answers_to_process = all_correct_answers[start:end]
 
         if args.stage in ['generate', 'all']:
-            generate_and_label_answers(
-                statements=statements_to_process,
-                correct_answers=answers_to_process,
-                tokenizer=tokenizer,
-                model=model,
-                device=args.device,
-                num_generations=args.num_generations,
-                output_dir=args.probe_output_dir
-            )
+            batch_size = args.gen_batch_size
+            for start_idx in range(0, len(statements_to_process), batch_size):
+                end_idx = min(start_idx + batch_size, len(statements_to_process))
+                batch_statements = statements_to_process[start_idx:end_idx]
+                batch_answers = answers_to_process[start_idx:end_idx]
+
+                generate_and_label_answers(
+                    statements=batch_statements,
+                    correct_answers=batch_answers,
+                    tokenizer=tokenizer,
+                    model=model,
+                    device=args.device,
+                    num_generations=args.num_generations,
+                    output_dir=args.probe_output_dir
+                )
+
 
         if args.stage in ['activate', 'all']:
             get_truth_probe_activations(
