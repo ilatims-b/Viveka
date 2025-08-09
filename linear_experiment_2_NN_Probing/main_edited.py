@@ -48,17 +48,47 @@ def load_and_project_activations(activations_dir, layer_idx, device):
 
 # === Training Function ============================================
 
+def load_preprojected_dataset(projected_dir, layer_idx):
+    """
+    Loads already SVD-processed activation files for a specific layer
+    from the activations_svd directory.
+    """
+    activations_list, labels_list = [], []
+    file_pattern = os.path.join(projected_dir, f'layer{layer_idx}_stmt*_svd_processed.pt')
+
+    for fname in tqdm(glob.glob(file_pattern), desc=f"Loading pre-projected L{layer_idx}", leave=False):
+        data = t.load(fname)
+        activations_list.append(data['activations'])
+        labels_list.append(data['labels'])
+
+    if not activations_list:
+        return None
+
+    return TensorDataset(
+        t.cat(activations_list, dim=0),
+        t.cat(labels_list, dim=0).float().unsqueeze(1)
+    )
+
+
 def train_probing_network(dataset_dir, train_layers, device):
     """
-    Trains a probing network for each specified layer on SVD-projected data.
+    Trains a probing network for each specified layer on either:
+    - precomputed SVD-projected activations from activations_svd, or
+    - raw activations projected on-the-fly using saved projection matrices.
     """
     model_name_safe = hparams.model_name.replace('/', '_')
     activations_dir = os.path.join(dataset_dir, 'activations', model_name_safe)
+    projected_dir = os.path.join(dataset_dir, 'activations_svd', model_name_safe)
     probes_dir = os.path.join(dataset_dir, 'trained_probes', model_name_safe)
     os.makedirs(probes_dir, exist_ok=True)
 
     for l_idx in tqdm(train_layers, desc="Training probe per layer"):
-        dataset = load_and_project_activations(activations_dir, l_idx, device)
+        # Prefer precomputed projected activations if available
+        if os.path.exists(projected_dir) and glob.glob(os.path.join(projected_dir, f'layer{l_idx}_stmt*_svd_processed.pt')):
+            dataset = load_preprojected_dataset(projected_dir, l_idx)
+        else:
+            dataset = load_and_project_activations(activations_dir, l_idx, device)
+
         if dataset is None:
             print(f"No data for layer {l_idx}. Skipping.")
             continue
