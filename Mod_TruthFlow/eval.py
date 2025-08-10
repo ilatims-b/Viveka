@@ -289,8 +289,8 @@ class MCEvalPipeline:
             sum_mc2 += mc2
             
         metrics = {'mc_1': sum_mc1/len(self.test_ds), 'mc_2': sum_mc2/len(self.test_ds)}
-        print(f"- | MC1: {metrics['mc_1']}, MC2: {metrics['mc_2']} | - | {self.model_name} | Base | {ds_name}")
-        write_to_csv(f"- | MC1: {metrics['mc_1']}, MC2: {metrics['mc_2']} | - | {self.model_name} | Base | {ds_name}", None, "mc_result.csv")
+        print(f"NA | MC1: {metrics['mc_1']}, MC2: {metrics['mc_2']} | NA | {self.model_name} | Base | {ds_name}")
+        write_to_csv(f"NA | MC1: {metrics['mc_1']}, MC2: {metrics['mc_2']} | NA | {self.model_name} | Base | {ds_name}", None, "mc_result.csv")
         
             
     def flow_mc_pipeline(self, flow, wrapper, v, alpha, ds_name):
