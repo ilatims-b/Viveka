@@ -104,7 +104,7 @@ def tokenize(prompt, tokenizer, model_name, tokenizer_args=None):
     )
     return inputs['input_ids'].squeeze(), inputs.get('attention_mask', None)
 
-def generate(model_input, model, model_name, do_sample=False, output_scores=False, temperature=1.0, top_k=50, top_p=1.0,
+def generate(model_input, model, model_name, do_sample=True, output_scores=False, temperature=1.0, top_k=50, top_p=1.0,
              max_new_tokens=100, stop_token_id=None, tokenizer=None, output_hidden_states=False, additional_kwargs=None,
              stopping_criteria=None):
     if stop_token_id is not None: eos_token_id = stop_token_id
