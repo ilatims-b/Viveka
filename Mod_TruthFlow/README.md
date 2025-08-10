@@ -5,11 +5,11 @@ This repository contains the source code and instructions to reproduce the resul
 All the errors have been rectified!
 
 ## Setup
-Create an ipynb file in colab, and use the demo.ipynb as a reference for using this repo on colab
+Run the TruthFlow_Intervention.ipynb file (this file is made so that you can run it easily on colab)
 
-You can use the required commands (for dataset creation, or flow model training) and comment out the other commands in the cell (as shown in demo.ipynb)
+You can use the required commands (for dataset creation, or flow model training) and comment out the other commands in the cell
 
-The below sections are for explaining the commands being used in demo.ipynb
+The below sections are for explaining the commands being used in TruthFlow_Intervention.ipynb
 
 ## Create Dataset For TruthFlow
 To train and test TruthFlow, you have to first extract query last token hidden states and query-specific truthful direction.
@@ -38,15 +38,10 @@ python flow.py --model_name gemma-2 --ds_path data_tqa/gemma-2_ans_avg_seed0_tes
 * ``--ds_path`` Local path to the data collected before for training and testing TruthFlow.
 * ``--k`` How many top singular vectors to select to form the truthful subspace.
 * ``--alpha`` The hyperparameter to control the intervention intensity. 
-* ``--num_epochs`` How many epochs to train flow matching model. If u want to evaluate the flow model then use the same argument which u used to train (to match the correct file in the directory {model_name}_{ds_name}_results)
+* ``--num_epochs`` How many epochs to train flow matching model. Use only when u mention ``--train`` otherwise ignore.
 * Currently ``--open_gen_eval`` pipeline is not working so use ``--mc_eval`` for now.
 * Use ``--truthflow`` for evaluating truthflow intervened model responses or ``-base`` for evaluating unintervened model responses.
 * Mention ``--train`` if u want to train flow model. For evaluation ignore.
-
-## Hyperparameter tuning
-
-If you have stored the data_{ds_name} and {model_name}_{ds_name}_results folders locally with the required files (got by creating dataset and training flow model) then u can upload with these folders in the same Mod_TruthFlow directory in 
-colab and run flow.py without mentioning ``--train``.
 
 ## Acknowledgements
 
@@ -67,4 +62,28 @@ This work builds upon several open source projects. In particular:
       url={https://arxiv.org/abs/2502.04556}, 
 }
 
+```
+
+# TruthfulQA Multiple-Choice Dataset Support
+
+This document describes the implementation of support for the TruthfulQA multiple-choice dataset in the TruthFlow framework.
+
+## Overview
+
+The TruthfulQA multiple-choice dataset has a different structure compared to the generation dataset. It contains `mc1_targets` and `mc2_targets` fields, each with `choices` and `labels`. This implementation converts it to a format compatible with the existing TruthFlow pipeline.
+
+## Usage
+
+To use the TruthfulQA multiple-choice dataset, follow these steps:
+
+1. Create the dataset using `create_ds.py` with the `--ds_name tqa_mc` flag:
+
+```bash
+python create_ds.py --model_name gemma-2 --layers 20 --test_size 0.5 --seed 0 --token_pos ans_avg --ds_name tqa_mc --batch_size 1 --torch_dtype fp16
+```
+
+2. Run the evaluation using `flow.py` with the `--mc_eval` flag:
+
+```bash
+python flow.py --model_name gemma-2 --ds_path data_tqa_mc/gemma-2_ans_avg_seed0_testsize0.5_layers_20 --layers 20 --seed 0 --truthflow --mc_eval --k 20 --alpha 1.5 --train --num_epochs 40
 ```
