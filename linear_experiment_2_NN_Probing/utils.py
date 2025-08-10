@@ -136,8 +136,9 @@ def generate_model_answers(
     model_name,
     max_new_tokens=64,
     stopping_criteria=None,
-    num_return_sequences=1
-):
+    num_return_sequences=1,
+    **generate_kwargs
+    ):
     if tokenizer.pad_token is None:
         if tokenizer.eos_token is not None:
             tokenizer.pad_token = tokenizer.eos_token
@@ -160,26 +161,23 @@ def generate_model_answers(
             input_ids=inputs['input_ids'],
             attention_mask=inputs['attention_mask'],
             max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=0.7,
-            top_p=0.9,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
             stopping_criteria=stopping_criteria,
-            num_return_sequences=num_return_sequences
+            num_return_sequences=num_return_sequences,
+            **generate_kwargs  # Pass through any extra params like do_sample, temperature
         )
 
     # Decode outputs
     all_model_answers_raw = []
     all_generated_ids = []
 
-    # When num_return_sequences > 1, outputs are grouped per prompt
     batch_size = len(prompts)
     for i in range(batch_size * num_return_sequences):
         prompt_idx = i // num_return_sequences
         input_len = inputs['input_ids'][prompt_idx].shape[0]
 
-        generated_ids = generated[i][input_len:]  # slice to only new tokens
+        generated_ids = generated[i][input_len:]
         model_answer_raw = tokenizer.decode(generated_ids, skip_special_tokens=True)
 
         all_model_answers_raw.append(model_answer_raw)
