@@ -23,8 +23,8 @@ def generate_and_label_answers(
     output_dir="probes_data"
 ):
     """
-    STAGE 1: Generate answers for a slice of statements, label them,
-    and save/update the results in a central JSON cache.
+    STAGE 1: Generate answers for a slice of statements in batch,
+    label them, and save/update the results in a central JSON cache.
     """
     model_name = model.name_or_path.replace("/", "_") if hasattr(model, 'name_or_path') else 'unknown'
     generations_dir = os.path.join(output_dir, "generations")
@@ -37,45 +37,64 @@ def generate_and_label_answers(
     else:
         generations_cache = {}
 
-    # Outer loop for statements
-    for stmt, correct_ans in tqdm(
-        zip(statements, correct_answers),
-        desc="Stage 1: Generating Answers",
-        total=len(statements)
-    ):
-        if stmt in generations_cache:
-            continue
+    # Filter out already-generated statements
+    batch_statements = []
+    batch_correct_answers = []
+    for stmt, correct_ans in zip(statements, correct_answers):
+        if stmt not in generations_cache:
+            batch_statements.append(stmt)
+            batch_correct_answers.append(correct_ans)
 
-        prompt = create_prompts([stmt], model_name)[0]
-        generated_texts = []
-        # MODIFICATION: Inner loop for generations per statement
-        for _ in tqdm(range(num_generations), desc=f"Generations for '{stmt[:20]}...'", leave=False):
-            answer_raw, _ = generate_model_answers(
-                [prompt], model, tokenizer, device, model_name, max_new_tokens=64
+    if not batch_statements:
+        return
+
+    # Create prompts for all statements in this batch
+    prompts = create_prompts(batch_statements, model_name)
+
+    generated_texts_list = []
+
+    # tqdm over statements so you can see per-statement progress
+    for i, prompt in enumerate(tqdm(prompts, desc="Generating in batches", total=len(prompts))):
+        stmt_generations = []
+        for _ in range(num_generations):
+            answers, _ = generate_model_answers(
+                [prompt], model, tokenizer, device, model_name,
+                max_new_tokens=64,
+                do_sample=True
             )
-            generated_texts.append(answer_raw[0].strip())
+            stmt_generations.append(answers[0].strip())
 
+        generated_texts_list.append(stmt_generations)
+
+
+    # all_generated will be length = len(batch_statements) * num_generations
+    for i, stmt in enumerate(batch_statements):
+        # Parse correct answers list
         try:
-            correct_answers_list = eval(correct_ans)
+            correct_answers_list = eval(batch_correct_answers[i])
             if not isinstance(correct_answers_list, list):
                 correct_answers_list = [str(correct_answers_list)]
         except (SyntaxError, NameError):
-            correct_answers_list = [str(correct_ans)]
+            correct_answers_list = [str(batch_correct_answers[i])]
 
+        # Label generations
         ground_truth_labels = []
-        for text in generated_texts:
-            is_match = any(fuzz.partial_ratio(str(ans).lower(), text.lower()) > 90 for ans in correct_answers_list)
+        for text in generated_texts_list[i]:
+            is_match = any(fuzz.partial_ratio(str(ans).lower(), text.lower()) > 90
+                           for ans in correct_answers_list)
             ground_truth_labels.append(1 if is_match else 0)
 
         generations_cache[stmt] = {
-            "prompt": prompt,
-            "generated_answers": generated_texts,
+            "prompt": prompts[i],
+            "generated_answers": generated_texts_list[i],
             "ground_truth_labels": ground_truth_labels
         }
 
     with open(generations_cache_path, 'w', encoding='utf-8') as f:
         json.dump(generations_cache, f, indent=2, ensure_ascii=False)
+
     print(f"\nGeneration and labeling complete for this slice. Cache updated at '{generations_cache_path}'.")
+
 
 
 def get_truth_probe_activations(
@@ -85,7 +104,7 @@ def get_truth_probe_activations(
     layers,
     layer_indices,
     device,
-    output_dir="probes_data",
+    #output_dir="probes_data",
     start_index=0
 ):
     """
