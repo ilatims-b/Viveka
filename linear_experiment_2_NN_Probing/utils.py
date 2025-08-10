@@ -136,11 +136,9 @@ def generate_model_answers(
     model_name,
     max_new_tokens=64,
     stopping_criteria=None,
-    num_return_sequences=1
-):
     num_return_sequences=1,
     **generate_kwargs
-    ):
+):
     if tokenizer.pad_token is None:
         if tokenizer.eos_token is not None:
             tokenizer.pad_token = tokenizer.eos_token
@@ -169,7 +167,6 @@ def generate_model_answers(
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
             stopping_criteria=stopping_criteria,
-            num_return_sequences=num_return_sequences
             num_return_sequences=num_return_sequences,
             **generate_kwargs  # Pass through any extra params like do_sample, temperature
         )
