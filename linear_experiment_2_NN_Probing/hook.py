@@ -104,7 +104,7 @@ def get_truth_probe_activations(
     layers,
     layer_indices,
     device,
-    output_dir="probes_data",
+    #output_dir="probes_data",
     start_index=0
 ):
     """
