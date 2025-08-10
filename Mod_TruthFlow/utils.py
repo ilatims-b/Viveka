@@ -122,3 +122,47 @@ def preprocess_tqa(ds):
     
     return filtered_ds
 
+
+def preprocess_tqa_mc(ds):
+    """Process the multiple-choice dataset of TruthfulQA.
+    
+    The multiple-choice dataset has a different structure compared to the generation dataset.
+    It contains 'mc1_targets' and 'mc2_targets' fields, each with 'choices' and 'labels'.
+    This function converts it to a format compatible with the existing pipeline by:
+    1. Extracting correct answers (where label=1) and incorrect answers (where label=0) from mc1_targets
+    2. Creating a new dataset with the same structure as the generation dataset
+    3. Preserving the original mc1_targets and mc2_targets for reference
+    
+    Args:
+        ds: The TruthfulQA multiple-choice dataset
+        
+    Returns:
+        A processed dataset with 'question', 'correct_answers', and 'incorrect_answers' fields
+        that is compatible with the existing TruthFlow pipeline
+    """
+    def process_mc_example(example):
+        # Extract correct and incorrect answers from mc1_targets
+        # mc1_targets has binary labels (1 for correct, 0 for incorrect)
+        correct_answers = []
+        incorrect_answers = []
+        
+        for choice, label in zip(example["mc1_targets"]["choices"], example["mc1_targets"]["labels"]):
+            if label == 1:
+                correct_answers.append(choice)
+            else:
+                incorrect_answers.append(choice)
+        
+        # Create a new example with the same structure as the generation dataset
+        return {
+            "question": example["question"],
+            "correct_answers": correct_answers,
+            "incorrect_answers": incorrect_answers,
+            # Keep the original mc targets for reference if needed
+            "mc1_targets": example["mc1_targets"],
+            "mc2_targets": example["mc2_targets"]
+        }
+    
+    processed_ds = ds.map(process_mc_example)
+    
+    return processed_ds
+

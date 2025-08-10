@@ -6,7 +6,7 @@ import re
 import numpy as np
 import os
 
-from utils import seed_everything, load_model_and_tokenizer, get_chat, preprocess_tqa
+from utils import seed_everything, load_model_and_tokenizer, get_chat, preprocess_tqa, preprocess_tqa_mc
 
 import argparse
 
@@ -174,6 +174,10 @@ if __name__ == "__main__":
         print("===================TruthfulQA==================")
         ds = load_dataset("truthfulqa/truthful_qa", "generation", split="validation")
         ds = preprocess_tqa(ds)
+    elif args.ds_name == "tqa_mc":
+        print("===================TruthfulQA MC==================")
+        ds = load_dataset("truthfulqa/truthful_qa", "multiple_choice", split="validation")
+        ds = preprocess_tqa_mc(ds)
     else:
         raise ValueError("Invalid dataset name.")
     

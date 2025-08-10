@@ -13,7 +13,7 @@ import time
 from eval import OpenGenEvalPipeline, MCEvalPipeline
 from model import LinearUNet
 from rectified_flow import RectifiedFlow
-from utils import load_model_and_tokenizer, seed_everything, get_chat, get_model_name
+from utils import load_model_and_tokenizer, seed_everything, get_chat, get_model_name, preprocess_tqa_mc
 from wrapper import Wrapper
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -53,7 +53,7 @@ def transfer_data_loader(ds_name, layers, batch_size=136):
     
     return ds, data_loader
 
-def prepare_tqa_train_test_ds(tokenizer, ds_name, layers:List[int]=[13]):
+def prepare_tqa_train_test_ds(tokenizer, ds_name, layers:List[int]=[13], is_mc=False):
     ds = load_from_disk(ds_name)
     train_ds = ds["train"]
     test_ds = ds["test"] 
@@ -65,6 +65,12 @@ def prepare_tqa_train_test_ds(tokenizer, ds_name, layers:List[int]=[13]):
     train_ds.set_format(type='torch', columns=attr_list)
     
     test_ds = test_ds.map(encode)
+    
+    # If this is a multiple-choice dataset, we need to ensure it has the correct format
+    if is_mc and 'mc1_targets' in test_ds.column_names:
+        # Process the multiple-choice dataset to extract correct and incorrect answers
+        test_ds = preprocess_tqa_mc(test_ds)
+    
     test_ds.set_format(type='torch', columns=attr_list + ['question', 'template_q', 'input_ids', 'correct_answers', 'incorrect_answers'])
     
     return train_ds, test_ds
@@ -289,7 +295,9 @@ def flow_llm_mc(args, model, tokenizer, device, ds_name, model_name, wandb_proj=
     else:
         raise ValueError("Only support one layer")
     
-    train_ds, test_ds = prepare_tqa_train_test_ds(tokenizer, ds_name, layers)
+    # Check if this is a multiple-choice dataset based on the dataset name
+    is_mc = "tqa_mc" in ds_name
+    train_ds, test_ds = prepare_tqa_train_test_ds(tokenizer, ds_name, layers, is_mc=is_mc)
     hs_mat = torch.cat([train_ds[i][f"y_win_layer{flow_layer}"] for i in range(len(train_ds))], dim=0)
     _, s, v = torch.svd(hs_mat)
     
@@ -327,7 +335,9 @@ def base_llm(args, model, tokenizer, device, ds_name, save_res_name="base"):
         os.makedirs(res_dir)
         
     layers = args.layers
-    _, test_ds = prepare_tqa_train_test_ds(tokenizer, ds_name, layers)
+    # Check if this is a multiple-choice dataset based on the dataset name
+    is_mc = "tqa_mc" in ds_name
+    _, test_ds = prepare_tqa_train_test_ds(tokenizer, ds_name, layers, is_mc=is_mc)
     
     save_res_path = os.path.join(res_dir, f"{args.eval_method}_" + save_res_name)
     open_gen_eval_pipeline = OpenGenEvalPipeline(model, tokenizer, device, layers, test_ds)
@@ -336,7 +346,9 @@ def base_llm(args, model, tokenizer, device, ds_name, save_res_name="base"):
     
 def base_llm_mc(model, tokenizer, device, ds_name, model_name):
     layers = [20]
-    _, test_ds = prepare_tqa_train_test_ds(tokenizer, ds_name, layers)
+    # Check if this is a multiple-choice dataset based on the dataset name
+    is_mc = "tqa_mc" in ds_name
+    _, test_ds = prepare_tqa_train_test_ds(tokenizer, ds_name, layers, is_mc=is_mc)
     
     mc_eval_pipeline = MCEvalPipeline(model, tokenizer, device, layers, test_ds, model_name)
     # evaluate
