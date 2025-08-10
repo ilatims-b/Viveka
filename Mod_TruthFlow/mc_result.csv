@@ -8,3 +8,7 @@
 "NA | MC1: 0.3056234718826406, MC2: 0.48803020956104914 | NA | gemma-2 | Base | tqa",
 "NA | MC1: 0.293398533007335, MC2: 0.2785129059578027 | NA | gemma-2 | Base | tqa_mc",	
 "Layer 20 | MC1: 0.3105134474327628, MC2: 0.309485443255978 | alpha: 2.5 | gemma-2 | TruthFlow | tqa_mc",
+"Layer 20 | MC1: 0.3202933985330073, MC2: 0.3190182811380017 | alpha: 10.0 | gemma-2 | TruthFlow | tqa_mc",
+"Layer 20 | MC1: 0.33496332518337407, MC2: 0.33066256678067096 | alpha: 5.0 | gemma-2 | TruthFlow | tqa_mc",
+"Layer 20 | MC1: 0.33496332518337407, MC2: 0.33066256678067096 | alpha: 5.0 | gemma-2 | TruthFlow | tqa_mc",
+"Layer 20 | MC1: 0.2665036674816626, MC2: 0.2678351641365392 | alpha: 25.0 | gemma-2 | TruthFlow | tqa_mc",
