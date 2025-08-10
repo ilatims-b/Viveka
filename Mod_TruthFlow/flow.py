@@ -285,7 +285,10 @@ def flow_llm(args, model, tokenizer, device, ds_name, wandb_proj=None, save_res_
     open_gen_eval_pipeline.flow_eval_pipeline(flows, wrapper, v, args.alpha, eval_method=args.eval_method, file_name=save_res_path)
 
 def flow_llm_mc(args, model, tokenizer, device, ds_name, model_name, wandb_proj=None, save_nn_name=None):
-    res_dir = f"{args.model_name}_tqa_results"
+    ds_path = ds_name
+    
+    ds_name = ds_name.split("/")[0].split("data_")[1]
+    res_dir = f"{args.model_name}_{ds_name}_results"
     if os.path.exists(res_dir) == False:
         os.makedirs(res_dir)
     layer = args.layers
@@ -297,7 +300,7 @@ def flow_llm_mc(args, model, tokenizer, device, ds_name, model_name, wandb_proj=
     
     # Check if this is a multiple-choice dataset based on the dataset name
     is_mc = "tqa_mc" in ds_name
-    train_ds, test_ds = prepare_tqa_train_test_ds(tokenizer, ds_name, layers, is_mc=is_mc)
+    train_ds, test_ds = prepare_tqa_train_test_ds(tokenizer, ds_path, layers, is_mc=is_mc)
     hs_mat = torch.cat([train_ds[i][f"y_win_layer{flow_layer}"] for i in range(len(train_ds))], dim=0)
     _, s, v = torch.svd(hs_mat)
     
@@ -327,17 +330,21 @@ def flow_llm_mc(args, model, tokenizer, device, ds_name, model_name, wandb_proj=
         rectified_flow.eval()
         flows.append(rectified_flow)
     
-    mc_eval_pipeline.flow_mc_pipeline(flows, wrapper, v, args.alpha) 
+    mc_eval_pipeline.flow_mc_pipeline(flows, wrapper, v, args.alpha, ds_name) 
     
 def base_llm(args, model, tokenizer, device, ds_name, save_res_name="base"):
-    res_dir = f"{args.model_name}_tqa_results"
+    ds_path = ds_name
+    
+    ds_name = ds_name.split("/")[0].split("data_")[1]
+    
+    res_dir = f"{args.model_name}_{ds_name}_results"
     if os.path.exists(res_dir) == False:
         os.makedirs(res_dir)
         
     layers = args.layers
     # Check if this is a multiple-choice dataset based on the dataset name
     is_mc = "tqa_mc" in ds_name
-    _, test_ds = prepare_tqa_train_test_ds(tokenizer, ds_name, layers, is_mc=is_mc)
+    _, test_ds = prepare_tqa_train_test_ds(tokenizer, ds_path, layers, is_mc=is_mc)
     
     save_res_path = os.path.join(res_dir, f"{args.eval_method}_" + save_res_name)
     open_gen_eval_pipeline = OpenGenEvalPipeline(model, tokenizer, device, layers, test_ds)
@@ -345,14 +352,17 @@ def base_llm(args, model, tokenizer, device, ds_name, save_res_name="base"):
     open_gen_eval_pipeline.base_eval_pipeline(eval_method=args.eval_method, file_name=save_res_path)
     
 def base_llm_mc(model, tokenizer, device, ds_name, model_name):
+    ds_path = ds_name
+    
+    ds_name = ds_name.split("/")[0].split("data_")[1]
     layers = [20]
     # Check if this is a multiple-choice dataset based on the dataset name
     is_mc = "tqa_mc" in ds_name
-    _, test_ds = prepare_tqa_train_test_ds(tokenizer, ds_name, layers, is_mc=is_mc)
+    _, test_ds = prepare_tqa_train_test_ds(tokenizer, ds_path, layers, is_mc=is_mc)
     
     mc_eval_pipeline = MCEvalPipeline(model, tokenizer, device, layers, test_ds, model_name)
     # evaluate
-    mc_eval_pipeline.base_mc_pipeline()
+    mc_eval_pipeline.base_mc_pipeline(ds_name)
     
 #! Open generation -- transfer
 def transfer_flow_gen(args, model, tokenizer, device, ds_name, wandb_proj=None, save_res_name=None, save_mlp_name=None, transfer_ds_name="halueval"):

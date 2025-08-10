@@ -223,7 +223,7 @@ class MCEvalPipeline:
         self.test_ds = test_ds
         self.model_name = model_name
     
-    def base_mc_pipeline(self):
+    def base_mc_pipeline(self, ds_name):
         sum_mc1 = 0
         sum_mc2 = 0
         
@@ -289,11 +289,11 @@ class MCEvalPipeline:
             sum_mc2 += mc2
             
         metrics = {'mc_1': sum_mc1/len(self.test_ds), 'mc_2': sum_mc2/len(self.test_ds)}
-        print(f"MC1: {metrics['mc_1']}, MC2: {metrics['mc_2']} | {self.model_name} | Base")
-        write_to_csv(f"MC1: {metrics['mc_1']}, MC2: {metrics['mc_2']} | {self.model_name} | Base", None, "mc_result.csv")
+        print(f"- | MC1: {metrics['mc_1']}, MC2: {metrics['mc_2']} | - | {self.model_name} | Base | {ds_name}")
+        write_to_csv(f"- | MC1: {metrics['mc_1']}, MC2: {metrics['mc_2']} | - | {self.model_name} | Base | {ds_name}", None, "mc_result.csv")
         
             
-    def flow_mc_pipeline(self, flow, wrapper, v, alpha):
+    def flow_mc_pipeline(self, flow, wrapper, v, alpha, ds_name):
         sum_mc1 = 0
         sum_mc2 = 0
         for data in tqdm(self.test_ds):
@@ -376,8 +376,8 @@ class MCEvalPipeline:
                 self.model.model.layers[layer] = original_layers[idx]
                 
         metrics = {'mc_1': sum_mc1/len(self.test_ds), 'mc_2': sum_mc2/len(self.test_ds)}
-        print(f"Layer {self.layers[0]} | MC1: {metrics['mc_1']}, MC2: {metrics['mc_2']} | alpha: {alpha} | {self.model_name} | TruthFlow")
-        write_to_csv(f"Layer {self.layers[0]} | MC1: {metrics['mc_1']}, MC2: {metrics['mc_2']} | alpha: {alpha} | {self.model_name} | TruthFlow", None, "mc_result.csv")
+        print(f"Layer {self.layers[0]} | MC1: {metrics['mc_1']}, MC2: {metrics['mc_2']} | alpha: {alpha} | {self.model_name} | TruthFlow | {ds_name}")
+        write_to_csv(f"Layer {self.layers[0]} | MC1: {metrics['mc_1']}, MC2: {metrics['mc_2']} | alpha: {alpha} | {self.model_name} | TruthFlow | {ds_name}", None, "mc_result.csv")
 
 
         
