@@ -104,12 +104,12 @@ def tokenize(prompt, tokenizer, model_name, tokenizer_args=None):
     )
     return inputs['input_ids'].squeeze(), inputs.get('attention_mask', None)
 
-def generate(model_input, model, model_name, do_sample=True, output_scores=False, temperature=1.0, top_k=50, top_p=1.0,
+def generate(model_input, model, model_name, do_sample=False, output_scores=False, temperature=1.0, top_k=50, top_p=1.0,
              max_new_tokens=100, stop_token_id=None, tokenizer=None, output_hidden_states=False, additional_kwargs=None,
              stopping_criteria=None):
     if stop_token_id is not None: eos_token_id = stop_token_id
     else: eos_token_id = None
-
+    
     model_output = model.generate(model_input,
                                   max_new_tokens=max_new_tokens, output_hidden_states=output_hidden_states,
                                   output_scores=output_scores,
@@ -122,72 +122,59 @@ def generate(model_input, model, model_name, do_sample=True, output_scores=False
 def create_prompts(statements, model_name):
     """Applies the correct prompt format based on the model type."""
     mn_lower = model_name.lower()
-
+    
     if 'instruct' in mn_lower or 'it' in mn_lower:
         return [f"<start_of_turn>user\nQ: {s}<end_of_turn>\n<start_of_turn>model\nA:" for s in statements]
     else:
         return statements
 
-def generate_model_answers(
-    prompts,
-    model,
-    tokenizer,
-    device,
-    model_name,
-    max_new_tokens=64,
-    stopping_criteria=None,
-    num_return_sequences=1,
-    **generate_kwargs
-):
+def generate_model_answers(prompts, model, tokenizer, device, model_name, max_new_tokens=64, stopping_criteria=None):
     if tokenizer.pad_token is None:
         if tokenizer.eos_token is not None:
             tokenizer.pad_token = tokenizer.eos_token
-        else:
-            tokenizer.add_special_tokens({'pad_token': '<pad>'})
-            model.resize_token_embeddings(len(tokenizer))
-
-    # Tokenize all prompts at once
-    inputs = tokenizer(
-        prompts,
-        return_tensors="pt",
-        padding=True,
-        truncation=True,
-        add_special_tokens=True
-    ).to(device)
-
-    # Generate in batch
-    with t.no_grad():
-        generated = model.generate(
-            input_ids=inputs['input_ids'],
-            attention_mask=inputs['attention_mask'],
-            max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=0.7,
-            top_p=0.9,
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            stopping_criteria=stopping_criteria,
-            num_return_sequences=num_return_sequences,
-            **generate_kwargs  # Pass through any extra params like do_sample, temperature
-        )
-
-    # Decode outputs
+    else:
+            # Add a new pad token if no eos token exists
+        tokenizer.add_special_tokens({'pad_token': '<pad>'})
+        model.resize_token_embeddings(len(tokenizer))
+    
     all_model_answers_raw = []
     all_generated_ids = []
-
-    # When num_return_sequences > 1, outputs are grouped per prompt
-    batch_size = len(prompts)
-    for i in range(batch_size * num_return_sequences):
-        prompt_idx = i // num_return_sequences
-        input_len = inputs['input_ids'][prompt_idx].shape[0]
-
-        generated_ids = generated[i][input_len:]  # slice to only new tokens
-        generated_ids = generated[i][input_len:]
+    
+    for prompt in prompts:
+        # Tokenize with proper attention mask
+        inputs = tokenizer(
+            prompt, 
+            return_tensors="pt", 
+            padding=True, 
+            truncation=True,
+            add_special_tokens=True
+        ).to(device)
+        
+        # Generate with consistent parameters for reproducible results
+        with t.no_grad():
+            generated = model.generate(
+                input_ids=inputs['input_ids'],
+                attention_mask=inputs['attention_mask'],  # This is key!
+                max_new_tokens=max_new_tokens,
+                do_sample=True,  # Enable sampling for variety
+                temperature=0.7,  # Control randomness
+                top_p=0.9,       # Nucleus sampling
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+                stopping_criteria=stopping_criteria,
+                # Optional: set seed for reproducibility
+                # use_cache=True,
+            )
+        
+        # Extract only the newly generated tokens
+        generated_ids = generated[0][inputs['input_ids'].shape[1]:]
+        
+        # Decode the generated text
         model_answer_raw = tokenizer.decode(generated_ids, skip_special_tokens=True)
-
+        
         all_model_answers_raw.append(model_answer_raw)
         all_generated_ids.append(generated_ids.cpu())
-
+    
     return all_model_answers_raw, all_generated_ids
 
 
@@ -233,9 +220,9 @@ def extract_answer_direct(model_answer, question):
     """
     if not model_answer or len(model_answer.strip()) == 0:
         return None
-
+    
     answer = model_answer.strip()
-
+    
     # Remove common prefixes that don't contain the answer
     prefixes_to_remove = [
         "The answer is ",
@@ -247,12 +234,12 @@ def extract_answer_direct(model_answer, question):
         "This was ",
         "That was "
     ]
-
+    
     for prefix in prefixes_to_remove:
         if answer.startswith(prefix):
             answer = answer[len(prefix):]
             break
-
+    
     # Stop at common sentence endings
     stop_patterns = [
         r'\.',  # Period
@@ -278,27 +265,27 @@ def extract_answer_direct(model_answer, question):
         r' from \d{4}',  # " from 1985"
         r' between \d{4}',  # " between 1985"
     ]
-
+    
     for pattern in stop_patterns:
         match = re.search(pattern, answer, re.IGNORECASE)
         if match:
             answer = answer[:match.start()].strip()
             break
-
+    
     # Clean up the answer
     answer = answer.strip()
-
+    
     # Remove quotes
     answer = answer.strip('"\'')
-
+    
     # Remove trailing punctuation
     answer = answer.rstrip('.,!?;:')
-
+    
     # If it's too long, take first few words (but be less aggressive)
     words = answer.split()
     if len(words) > 8:  # Increased from 5 to 8
         answer = " ".join(words[:5])  # Take first 5 words instead of 3
-
+    
     return answer if answer and len(answer) > 1 else None
 
 
@@ -309,9 +296,9 @@ def is_vague_or_non_answer(model_answer, question):
     """
     if not model_answer or len(model_answer.strip()) == 0:
         return True
-
+    
     answer_lower = model_answer.lower().strip()
-
+    
     # Check for explicit non-answer patterns
     non_answer_patterns = [
         "i don't know",
@@ -343,11 +330,11 @@ def is_vague_or_non_answer(model_answer, question):
         "not certain",
         "uncertain"
     ]
-
+    
     for pattern in non_answer_patterns:
         if pattern in answer_lower:
             return True
-
+    
     # Check for incomplete/cut-off sentences that suggest the model didn't finish properly
     incomplete_patterns = [
         "the word",
@@ -402,12 +389,12 @@ def is_vague_or_non_answer(model_answer, question):
         "means",
         "represents"
     ]
-
+    
     # Check if answer starts with these incomplete patterns
     for pattern in incomplete_patterns:
         if answer_lower.startswith(pattern):
             return True
-
+    
     # Check if answer ends abruptly (incomplete sentence indicators)
     if (answer_lower.endswith(" is") or 
         answer_lower.endswith(" was") or 
@@ -434,7 +421,7 @@ def is_vague_or_non_answer(model_answer, question):
         answer_lower.endswith(" how") or
         answer_lower.endswith(" why")):
         return True
-
+    
     # Check for overly generic answers
     generic_answers = [
         "it depends",
@@ -461,19 +448,19 @@ def is_vague_or_non_answer(model_answer, question):
         "depends on context",
         "depends on the situation"
     ]
-
+    
     for pattern in generic_answers:
         if pattern in answer_lower:
             return True
-
+    
     # Check if answer is too short (less than 2 characters)
     if len(answer_lower) < 2:
         return True
-
+    
     # Check if answer is just common words
     if answer_lower in ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'up', 'out', 'down', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 'can', 'will', 'just', 'should', 'now']:
         return True
-
+    
     return False
 
 
@@ -481,27 +468,27 @@ def is_vague_or_non_answer(model_answer, question):
 #     """
 #     Hybrid approach: Try direct extraction first, then conservative LLM extraction
 #     """
-
+    
 #     # First, try direct pattern-based extraction
 #     direct_answer = extract_answer_direct(model_answer, question)
 #     if direct_answer and not is_vague_or_non_answer(direct_answer, question):
 #         return direct_answer
-
+    
 #     # If direct extraction fails, check if the original answer is vague
 #     if is_vague_or_non_answer(model_answer, question):
 #         return "NO ANSWER"
-
+    
 #     # Try LLM extraction as a fallback with simpler prompts
 #     model_name = model.name_or_path if hasattr(model, 'name_or_path') else 'unknown'
 #     mn_lower = model_name.lower()
-
+    
 #     # Simpler, more direct prompts
 #     prompts_to_try = [
 #         f"Extract the main answer from this text in 1-5 words:\n{model_answer}\n\nAnswer:",
 #         f"What is the answer?\n{model_answer}\n\nAnswer:",
 #         f"Text: {model_answer}\n\nMain answer (brief):"
 #     ]
-
+    
 #     for attempt, base_prompt in enumerate(prompts_to_try):
 #         try:
 #             # Format according to model type
@@ -518,9 +505,9 @@ def is_vague_or_non_answer(model_answer, question):
 #                     formatted_prompt = f"<start_of_turn>user\n{base_prompt}<end_of_turn>\n<start_of_turn>model\n"
 #                 else:
 #                     formatted_prompt = base_prompt
-
+                
 #                 inputs = tokenizer(formatted_prompt, return_tensors="pt").to(model.device)
-
+            
 #             # Create stopping criteria
 #             stop_tokens = ['<end_of_turn>', '<eos>', '</s>', '<|eot_id|>', '\n']
 #             stop_ids = []
@@ -531,9 +518,9 @@ def is_vague_or_non_answer(model_answer, question):
 #                         stop_ids.append(encoded[-1])
 #                 except:
 #                     continue
-
+            
 #             stopping_criteria = StoppingCriteriaList([StopOnTokens(list(set(stop_ids)))])
-
+            
 #             # Generate with conservative parameters
 #             with t.no_grad():
 #                 outputs = model.generate(
@@ -545,20 +532,20 @@ def is_vague_or_non_answer(model_answer, question):
 #                     stopping_criteria=stopping_criteria,
 #                     repetition_penalty=1.2
 #                 )
-
+            
 #             # Decode only new tokens
 #             new_tokens = outputs[0, inputs['input_ids'].shape[1]:]
 #             decoded_answer = tokenizer.decode(new_tokens, skip_special_tokens=True)
-
+            
 #             # Clean up the answer using the same direct extraction logic
 #             cleaned_answer = extract_answer_direct(decoded_answer, question)
-
+            
 #             # Validate the answer much more strictly
 #             if cleaned_answer and len(cleaned_answer) > 1:
 #                 # First check if the cleaned answer itself is vague
 #                 if is_vague_or_non_answer(cleaned_answer, question):
 #                     continue  # Try next attempt
-
+                
 #                 # Check if it's a reasonable extraction
 #                 if (len(cleaned_answer.split()) <= 6 and  # Allow up to 6 words
 #                     not any(phrase in cleaned_answer.lower() for phrase in [
@@ -570,23 +557,23 @@ def is_vague_or_non_answer(model_answer, question):
 #                     not cleaned_answer.startswith('It ') and   # Often indicates incomplete extraction
 #                     not cleaned_answer.startswith('This ') and # Often indicates incomplete extraction
 #                     not cleaned_answer.startswith('That ')):   # Often indicates incomplete extraction
-
+                    
 #                     # Check if answer words appear in original response (stricter)
 #                     answer_words = set(cleaned_answer.lower().split())
 #                     response_words = set(model_answer.lower().split())
-
+                    
 #                     # Require at least 60% of answer words to be in original response
 #                     if len(answer_words) > 0:
 #                         overlap = len(answer_words.intersection(response_words))
 #                         overlap_ratio = overlap / len(answer_words)
-
+                        
 #                         if overlap_ratio >= 0.6:  # At least 60% overlap
 #                             return cleaned_answer
-
+            
 #         except Exception as e:
 #             print(f"LLM extraction attempt {attempt + 1} failed: {e}")
 #             continue
-
+    
 #     # If all attempts fail, return NO ANSWER
 #     return "NO ANSWER"
 
@@ -595,17 +582,17 @@ def extract_answer_with_llm(question, model_answer, model, tokenizer, max_retrie
     """
     Simplified approach: Try LLM extraction first, then direct extraction as fallback
     """
-
+    
     # First, try LLM extraction
     llm_answer = try_llm_extraction(question, model_answer, model, tokenizer)
     if llm_answer and llm_answer != "NO ANSWER":
         return llm_answer
-
+    
     # Fallback to direct pattern-based extraction
     direct_answer = extract_answer_direct(model_answer, question)
     if direct_answer and not is_vague_or_non_answer(direct_answer, question):
         return direct_answer
-
+    
     # If both fail, return NO ANSWER
     return "NO ANSWER"
 
@@ -614,17 +601,17 @@ def try_llm_extraction(question, model_answer, model, tokenizer):
     """
     Try to extract answer using the LLM with the specified prompt template
     """
-
+    
     # Create extraction prompt
     extraction_prompt = f"Extract the exact answer from this response. Give only the answer, no explanation.\n\nQuestion: {question}\nResponse: {model_answer}\n\nAnswer:"
-
+    
     # Format using the specified template
     formatted_prompt = f"<start_of_turn>user\n{extraction_prompt}<end_of_turn>\n<start_of_turn>model\nA:"
-
+    
     try:
         # Tokenize
         inputs = tokenizer(formatted_prompt, return_tensors="pt").to(model.device)
-
+        
         # Create stopping criteria
         stop_tokens = ['<end_of_turn>', '<eos>', '</s>', '\n']
         stop_ids = []
@@ -635,9 +622,9 @@ def try_llm_extraction(question, model_answer, model, tokenizer):
                     stop_ids.append(encoded[-1])
             except:
                 continue
-
+        
         stopping_criteria = StoppingCriteriaList([StopOnTokens(list(set(stop_ids)))])
-
+        
         # Generate with conservative parameters
         with t.no_grad():
             outputs = model.generate(
@@ -648,11 +635,11 @@ def try_llm_extraction(question, model_answer, model, tokenizer):
                 pad_token_id=tokenizer.eos_token_id,
                 stopping_criteria=stopping_criteria
             )
-
+        
         # Decode only new tokens
         new_tokens = outputs[0, inputs['input_ids'].shape[1]:]
         decoded_answer = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
-
+        
         # Basic validation
         if decoded_answer and len(decoded_answer) > 0:
             # Remove common prefixes/artifacts
@@ -660,7 +647,7 @@ def try_llm_extraction(question, model_answer, model, tokenizer):
             for prefix in ["A:", "Answer:", "The answer is", "It is"]:
                 if cleaned.startswith(prefix):
                     cleaned = cleaned[len(prefix):].strip()
-
+            
             # Basic sanity checks
             if (len(cleaned) > 0 and 
                 len(cleaned.split()) <= 10 and  # Reasonable length
@@ -668,10 +655,10 @@ def try_llm_extraction(question, model_answer, model, tokenizer):
                     "extract", "response:", "question:", "explanation"
                 ])):
                 return cleaned
-
+    
     except Exception as e:
         print(f"LLM extraction failed: {e}")
-
+    
     return None
 
 def _cleanup_extracted_answer(decoded_output):
@@ -706,8 +693,10 @@ def load_statements(dataset_name):
     return df, df[question_col].tolist(), df[label_col].tolist()
 
 def find_answer_token_indices_by_string_matching(tokenizer, full_generated_ids, prompt_ids, exact_answer_str):
-    try: full_decoded_text = tokenizer.decode(full_generated_ids, skip_special_tokens=False)
-    except: return None
+    try: 
+        full_decoded_text = tokenizer.decode(full_generated_ids, skip_special_tokens=False)
+    except: 
+        return None
     match = process.extractOne(exact_answer_str, [full_decoded_text], scorer=fuzz.partial_ratio, score_cutoff=90)
     if not match: return None
     best_match_str = match[0]
