@@ -66,8 +66,6 @@ This work builds upon several open source projects. In particular:
 
 # TruthfulQA Multiple-Choice Dataset Support
 
-This document describes the implementation of support for the TruthfulQA multiple-choice dataset in the TruthFlow framework.
-
 ## Overview
 
 The TruthfulQA multiple-choice dataset has a different structure compared to the generation dataset. It contains `mc1_targets` and `mc2_targets` fields, each with `choices` and `labels`. This implementation converts it to a format compatible with the existing TruthFlow pipeline.
