@@ -51,24 +51,20 @@ def generate_and_label_answers(
     # Create prompts for all statements in this batch
     prompts = create_prompts(batch_statements, model_name)
 
-    generated_texts_list = []
-
-    # tqdm over statements so you can see per-statement progress
-    for i, prompt in enumerate(tqdm(prompts, desc="Generating in batches", total=len(prompts))):
-        stmt_generations = []
-        for _ in range(num_generations):
-            answers, _ = generate_model_answers(
-                [prompt], model, tokenizer, device, model_name,
-                max_new_tokens=64,
-                do_sample=True
-            )
-            stmt_generations.append(answers[0].strip())
-
-        generated_texts_list.append(stmt_generations)
-
+    # Generate all answers in parallel
+    all_generated, _ = generate_model_answers(
+        prompts, model, tokenizer, device, model_name,
+        max_new_tokens=64,
+        num_return_sequences=num_generations,
+        do_sample=True
+    )
 
     # all_generated will be length = len(batch_statements) * num_generations
+    # We regroup them by statement
     for i, stmt in enumerate(batch_statements):
+        stmt_generations = all_generated[i * num_generations:(i + 1) * num_generations]
+        generated_texts = [g.strip() for g in stmt_generations]
+
         # Parse correct answers list
         try:
             correct_answers_list = eval(batch_correct_answers[i])
@@ -79,14 +75,14 @@ def generate_and_label_answers(
 
         # Label generations
         ground_truth_labels = []
-        for text in generated_texts_list[i]:
+        for text in generated_texts:
             is_match = any(fuzz.partial_ratio(str(ans).lower(), text.lower()) > 90
                            for ans in correct_answers_list)
             ground_truth_labels.append(1 if is_match else 0)
 
         generations_cache[stmt] = {
             "prompt": prompts[i],
-            "generated_answers": generated_texts_list[i],
+            "generated_answers": generated_texts,
             "ground_truth_labels": ground_truth_labels
         }
 
@@ -104,7 +100,7 @@ def get_truth_probe_activations(
     layers,
     layer_indices,
     device,
-    #output_dir="probes_data",
+    output_dir="probes_data",
     start_index=0
 ):
     """
