@@ -199,8 +199,8 @@ if __name__ == '__main__':
                         help="Which stage of the probing pipeline to run.")
 
     # --- Arguments for Parallelization ---
-    parser.add_argument('--start-index', type=int, default=0, help="The starting row index of the dataset to process.")
-    parser.add_argument('--end-index', type=int, default=None, help="The ending row index of the dataset to process. Processes to the end if not specified.")
+    parser.add_argument('--start_index', type=int, default=0, help="The starting row index of the dataset to process.")
+    parser.add_argument('--end_index', type=int, default=None, help="The ending row index of the dataset to process. Processes to the end if not specified.")
     parser.add_argument('--gen_batch_size', type=int, default=32, help="Number of statements to process in parallel during generation.")
 
     # --- Configuration Arguments ---
