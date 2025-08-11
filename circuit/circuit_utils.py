@@ -1049,7 +1049,7 @@ def plot_patching_experiment(
 
     # Prepare axis and hover labels
     layer_labels = [f'Layer {i}' for i in range(n_layers)]
-    pos_labels = [f'{i}: {tok1} <-- {tok2}'
+    pos_labels = [f'{i}: {tok1} --> {tok2}'
                   for i, (tok1, tok2) in enumerate(
                       zip(
                           cache1['str_tokens'][start:end],
