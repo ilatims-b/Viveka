@@ -191,7 +191,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run a multi-stage pipeline to generate data, extract activations, run SVD, and train a truth probe.")
     # --- Core Arguments ---
     parser.add_argument('--dataset_path', type=str, required=True, help="Path to the dataset CSV file.")
-    parser.add_argument('--model_repo_id', type=str, required=True, default='google/gemma-2-2b-it' help="Hugging Face model repository ID.")
+    parser.add_argument('--model_repo_id', type=str, required=True, default='google/gemma-2-2b-it', help="Hugging Face model repository ID.")
     parser.add_argument('--device', type=str, default='cuda' if t.cuda.is_available() else 'cpu')
 
     # --- Pipeline Stage Control ---
@@ -202,7 +202,10 @@ if __name__ == '__main__':
     parser.add_argument('--start_index', type=int, default=0, help="The starting row index of the dataset to process.")
     parser.add_argument('--end_index', type=int, default=None, help="The ending row index of the dataset to process(doesn't include this row). Processes to the end if not specified.")
     parser.add_argument('--gen_batch_size', type=int, default=32, help="Number of statements to process in parallel during generation.")
-
+    # --- Generation Arguments ---
+    parser.add_argument('--temperature', type=float, default=0.7, help="The temperature with which you want to generate completions, default=0.7")
+    parser.add_argument('--top_p', type=float, default=0.9, help="Nucleus sampling threshold, default=0.9")
+    
     # --- Configuration Arguments ---
     parser.add_argument('--layers', nargs='+', type=int, default=[-1], help="List of layer indices to probe. -1 for all layers.")
     parser.add_argument('--probe_output_dir', type=str, default='/current_run', help="Directory to save generated data and activations.")
@@ -248,7 +251,9 @@ if __name__ == '__main__':
                     model=model,
                     device=args.device,
                     num_generations=args.num_generations,
-                    output_dir=args.probe_output_dir
+                    output_dir=args.probe_output_dir,
+                    temperature = args.temperature,
+                    top_p = args.top_p
                 )
 
 

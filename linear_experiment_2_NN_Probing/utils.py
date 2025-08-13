@@ -137,7 +137,10 @@ def generate_model_answers(
     max_new_tokens=64,
     stopping_criteria=None,
     num_return_sequences=1,
-    **generate_kwargs
+    temperature = 0.7,
+    top_p = 0.9,
+    do_sample = True,
+    additional_kwargs = None
     ):
     if tokenizer.pad_token is None:
         if tokenizer.eos_token is not None:
@@ -165,10 +168,10 @@ def generate_model_answers(
             eos_token_id=tokenizer.eos_token_id,
             stopping_criteria=stopping_criteria,
             num_return_sequences=num_return_sequences,
-            #temperature = 0.7,
-            #do_sample = True,
-            
-            **generate_kwargs  # Pass through any extra params like do_sample, temperature
+            temperature = temperature,
+            do_sample = do_sample,
+            top_p = top_p,
+            **(additional_kwargs or {})  # To handle exceptions of unexpected args
         )
 
     # Decode outputs

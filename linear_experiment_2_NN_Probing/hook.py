@@ -20,7 +20,9 @@ def generate_and_label_answers(
     model,
     device,
     num_generations=32,
-    output_dir="current_run"
+    output_dir="current_run",
+    temperature = 0.7,
+    top_p = 0.9
 ):
     """ 
     STAGE 1: Generate answers for a slice of statements in batch,
@@ -52,11 +54,14 @@ def generate_and_label_answers(
     prompts = create_prompts(batch_statements, model_name)
 
     # Generate all answers in parallel
+    print(f"Generating using temperature {temperature} and top_p = {top_p}")
     all_generated, _ = generate_model_answers(
         prompts, model, tokenizer, device, model_name,
         max_new_tokens=64,
         num_return_sequences=num_generations,
-        do_sample=True
+        do_sample=True,
+        top_p = 0.9,
+        temperature = 0.7
     )
 
     # all_generated will be length = len(batch_statements) * num_generations
