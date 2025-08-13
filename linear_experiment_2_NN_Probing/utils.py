@@ -165,6 +165,9 @@ def generate_model_answers(
             eos_token_id=tokenizer.eos_token_id,
             stopping_criteria=stopping_criteria,
             num_return_sequences=num_return_sequences,
+            #temperature = 0.7,
+            #do_sample = True,
+            
             **generate_kwargs  # Pass through any extra params like do_sample, temperature
         )
 
@@ -683,6 +686,7 @@ def load_model(model_repo_id: str, device: str):
         device_map='auto',
         torch_dtype=t.bfloat16 if t.cuda.is_available() and t.cuda.is_bf16_supported() else t.float16
     )
+    print(f"Using dtype:{torch.dtype}")
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         model.config.pad_token_id = model.config.eos_token_id

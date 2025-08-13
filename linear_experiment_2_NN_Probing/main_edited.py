@@ -191,7 +191,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run a multi-stage pipeline to generate data, extract activations, run SVD, and train a truth probe.")
     # --- Core Arguments ---
     parser.add_argument('--dataset_path', type=str, required=True, help="Path to the dataset CSV file.")
-    parser.add_argument('--model_repo_id', type=str, required=True, help="Hugging Face model repository ID.")
+    parser.add_argument('--model_repo_id', type=str, required=True, default='google/gemma-2-2b-it' help="Hugging Face model repository ID.")
     parser.add_argument('--device', type=str, default='cuda' if t.cuda.is_available() else 'cpu')
 
     # --- Pipeline Stage Control ---
@@ -199,14 +199,14 @@ if __name__ == '__main__':
                         help="Which stage of the probing pipeline to run.")
 
     # --- Arguments for Parallelization ---
-    parser.add_argument('--start-index', type=int, default=0, help="The starting row index of the dataset to process.")
-    parser.add_argument('--end-index', type=int, default=None, help="The ending row index of the dataset to process. Processes to the end if not specified.")
+    parser.add_argument('--start_index', type=int, default=0, help="The starting row index of the dataset to process.")
+    parser.add_argument('--end_index', type=int, default=None, help="The ending row index of the dataset to process(doesn't include this row). Processes to the end if not specified.")
     parser.add_argument('--gen_batch_size', type=int, default=32, help="Number of statements to process in parallel during generation.")
 
     # --- Configuration Arguments ---
     parser.add_argument('--layers', nargs='+', type=int, default=[-1], help="List of layer indices to probe. -1 for all layers.")
-    parser.add_argument('--probe_output_dir', type=str, default='probes_data', help="Directory to save generated data and activations.")
-    parser.add_argument('--num_generations', type=int, default=30, help="Number of answers to generate per statement for probing.")
+    parser.add_argument('--probe_output_dir', type=str, default='/current_run', help="Directory to save generated data and activations.")
+    parser.add_argument('--num_generations', type=int, default=32, help="Number of answers to generate per statement for probing.")
 
     # --- SVD & Training ---
     parser.add_argument('--svd_layers', nargs='+', type=int, help="Layers for 'svd' stage.")
@@ -230,7 +230,7 @@ if __name__ == '__main__':
         df, all_statements, all_correct_answers = load_statements(args.dataset_path)
 
         start = args.start_index
-        end = args.end_index if args.end_index is not None else len(all_statements)
+        end = args.end_index if args.end_index is not None else len(all_statements) #process everything if not specified
         statements_to_process = all_statements[start:end]
         answers_to_process = all_correct_answers[start:end]
 
@@ -274,3 +274,5 @@ if __name__ == '__main__':
         if not args.train_layers:
             parser.error("--train_layers is required for 'train' stage.")
         train_probing_network(args.probe_output_dir, args.train_layers, args.device)
+    else:
+        print("Invalid --stage arg")

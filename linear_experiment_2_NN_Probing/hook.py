@@ -19,8 +19,8 @@ def generate_and_label_answers(
     tokenizer,
     model,
     device,
-    num_generations=30,
-    output_dir="probes_data"
+    num_generations=32,
+    output_dir="current_run"
 ):
     """ 
     STAGE 1: Generate answers for a slice of statements in batch,
