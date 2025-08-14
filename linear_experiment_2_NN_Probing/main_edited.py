@@ -220,7 +220,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     hparams.model_name = args.model_repo_id
-
+    print(args.max_new_tokens, "main_edited.py, argsparser")
     # --- Model Loading ---
     print(f"Loading model: {args.model_repo_id}...")
     tokenizer, model, layer_modules = load_model(args.model_repo_id, args.device)

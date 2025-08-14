@@ -159,7 +159,7 @@ def generate_model_answers(
     ).to(device)
 
     # Generate in batch
-    print(max_tokens, " : Max tokens")
+    print(max_tokens, " : Max tokens at utils.py, generate_model_answers")
     with t.no_grad():
         generated = model.generate(
             input_ids=inputs['input_ids'],
