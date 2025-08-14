@@ -58,7 +58,7 @@ def generate_and_label_answers(
     print(f"Generating using temperature {temperature} and top_p = {top_p}")
     all_generated, _ = generate_model_answers(
         prompts, model, tokenizer, device, model_name,
-        max_new_tokens=max_new_tokens,
+        max_tokens=max_new_tokens,
         num_return_sequences=num_generations,
         do_sample=True,
         top_p = 0.9,

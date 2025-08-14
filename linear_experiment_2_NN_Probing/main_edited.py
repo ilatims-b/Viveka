@@ -224,8 +224,6 @@ if __name__ == '__main__':
     # --- Model Loading ---
     print(f"Loading model: {args.model_repo_id}...")
     tokenizer, model, layer_modules = load_model(args.model_repo_id, args.device)
-    tokenizer = AutoTokenizer.from_pretrained(args.model_repo_id, model_max_length = args.max_new_tokens)
-    tokenizer.to(args.device)
     num_layers = len(layer_modules)
 
     # --- Stage Routing ---
