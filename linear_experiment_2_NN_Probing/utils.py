@@ -134,7 +134,7 @@ def generate_model_answers(
     tokenizer,
     device,
     model_name,
-    max_tokens=64,
+    max_tokens=2,
     stopping_criteria=None,
     num_return_sequences=1,
     temperature = 0.7,
@@ -168,9 +168,9 @@ def generate_model_answers(
             eos_token_id=tokenizer.eos_token_id,
             stopping_criteria=stopping_criteria,
             num_return_sequences=num_return_sequences,
-            temperature = temperature,
-            do_sample = do_sample,
-            top_p = top_p,
+            temperature=temperature,
+            do_sample=do_sample,
+            top_p=top_p,
             **(additional_kwargs or {})  # To handle exceptions of unexpected args
         )
 
