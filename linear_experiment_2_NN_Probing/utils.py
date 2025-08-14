@@ -171,6 +171,7 @@ def generate_model_answers(
             temperature = temperature,
             do_sample = do_sample,
             top_p = top_p,
+            max_length = max_new_tokens,
             **(additional_kwargs or {})  # To handle exceptions of unexpected args
         )
 

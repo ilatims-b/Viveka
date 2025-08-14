@@ -20,7 +20,7 @@ def generate_and_label_answers(
     model,
     device,
     num_generations=32,
-    output_dir="current_run",
+    output_dir="/kaggle/working/current_run",
     temperature = 0.7,
     top_p = 0.9
 ):
@@ -105,7 +105,7 @@ def get_truth_probe_activations(
     layers,
     layer_indices,
     device,
-    output_dir="probes_data",
+    output_dir="/kaggle/working/current_run",
     start_index=0
 ):
     """
