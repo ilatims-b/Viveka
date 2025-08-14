@@ -23,7 +23,7 @@ def generate_and_label_answers(
     output_dir="/kaggle/working/current_run",
     temperature = 0.7,
     top_p = 0.9,
-    max_new_tokens = 64
+    max_new_tokens=64
 ):
     """ 
     STAGE 1: Generate answers for a slice of statements in batch,

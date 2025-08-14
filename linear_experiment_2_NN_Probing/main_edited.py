@@ -252,6 +252,7 @@ if __name__ == '__main__':
                     tokenizer=tokenizer,
                     model=model,
                     device=args.device,
+                    max_new_tokens=args.max_new_tokens,
                     num_generations=args.num_generations,
                     output_dir=args.probe_output_dir,
                     temperature=args.temperature,
