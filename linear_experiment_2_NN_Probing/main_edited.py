@@ -11,6 +11,7 @@ import os
 import torch as t
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
+from transformers import AutoTokenizer
 
 
 # === SVD Projection Loader ========================================
@@ -205,6 +206,7 @@ if __name__ == '__main__':
     # --- Generation Arguments ---
     parser.add_argument('--temperature', type=float, default=0.7, help="The temperature with which you want to generate completions, default=0.7")
     parser.add_argument('--top_p', type=float, default=0.9, help="Nucleus sampling threshold, default=0.9")
+    parser.add_argument('--max_new_tokens', type=int, help="Max number of tokens to generate; default to 64. Specify -1 for no truncation")
     
     # --- Configuration Arguments ---
     parser.add_argument('--layers', nargs='+', type=int, default=[-1], help="List of layer indices to probe. -1 for all layers.")
@@ -222,6 +224,8 @@ if __name__ == '__main__':
     # --- Model Loading ---
     print(f"Loading model: {args.model_repo_id}...")
     tokenizer, model, layer_modules = load_model(args.model_repo_id, args.device)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_repo_id, model_max_length = args.max_new_tokens)
+    tokenizer.to(args.device)
     num_layers = len(layer_modules)
 
     # --- Stage Routing ---
@@ -252,8 +256,8 @@ if __name__ == '__main__':
                     device=args.device,
                     num_generations=args.num_generations,
                     output_dir=args.probe_output_dir,
-                    temperature = args.temperature,
-                    top_p = args.top_p
+                    temperature=args.temperature,
+                    top_p=args.top_p
                 )
 
 

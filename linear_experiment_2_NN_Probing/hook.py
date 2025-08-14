@@ -22,7 +22,8 @@ def generate_and_label_answers(
     num_generations=32,
     output_dir="/kaggle/working/current_run",
     temperature = 0.7,
-    top_p = 0.9
+    top_p = 0.9,
+    max_new_tokens = 64
 ):
     """ 
     STAGE 1: Generate answers for a slice of statements in batch,
@@ -57,7 +58,7 @@ def generate_and_label_answers(
     print(f"Generating using temperature {temperature} and top_p = {top_p}")
     all_generated, _ = generate_model_answers(
         prompts, model, tokenizer, device, model_name,
-        max_new_tokens=64,
+        max_new_tokens=max_new_tokens,
         num_return_sequences=num_generations,
         do_sample=True,
         top_p = 0.9,
