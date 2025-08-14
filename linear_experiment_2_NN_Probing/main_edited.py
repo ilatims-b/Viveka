@@ -208,7 +208,7 @@ if __name__ == '__main__':
     
     # --- Configuration Arguments ---
     parser.add_argument('--layers', nargs='+', type=int, default=[-1], help="List of layer indices to probe. -1 for all layers.")
-    parser.add_argument('--probe_output_dir', type=str, default='/current_run', help="Directory to save generated data and activations.")
+    parser.add_argument('--probe_output_dir', type=str, default='/kaggle/working/current_run', help="Directory to save generated data and activations.")
     parser.add_argument('--num_generations', type=int, default=32, help="Number of answers to generate per statement for probing.")
 
     # --- SVD & Training ---
