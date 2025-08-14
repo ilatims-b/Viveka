@@ -202,11 +202,11 @@ if __name__ == '__main__':
     # --- Arguments for Parallelization ---
     parser.add_argument('--start_index', type=int, default=0, help="The starting row index of the dataset to process.")
     parser.add_argument('--end_index', type=int, default=None, help="The ending row index of the dataset to process(doesn't include this row). Processes to the end if not specified.")
-    parser.add_argument('--gen_batch_size', type=int, default=32, help="Number of statements to process in parallel during generation.")
+    parser.add_argument('--gen_batch_size', type=int, default=1, help="Number of statements to process in parallel during generation.")
     # --- Generation Arguments ---
     parser.add_argument('--temperature', type=float, default=0.7, help="The temperature with which you want to generate completions, default=0.7")
     parser.add_argument('--top_p', type=float, default=0.9, help="Nucleus sampling threshold, default=0.9")
-    parser.add_argument('--max_new_tokens', type=int, help="Max number of tokens to generate; default to 64. Specify -1 for no truncation")
+    parser.add_argument('--max_new_tokens', default = 64, type=int, help="Max number of tokens to generate; default to 64. Specify -1 for no truncation")
     
     # --- Configuration Arguments ---
     parser.add_argument('--layers', nargs='+', type=int, default=[-1], help="List of layer indices to probe. -1 for all layers.")
