@@ -144,6 +144,9 @@ def train_model(
 
     if save_dir is not None and not os.path.exists(save_dir):
         os.makedirs(save_dir)
+    
+    if save_dir is not None:
+        torch.save(cfg, save_dir + '/model_cfg.pt')
 
     train_cfg = HookedTransformerTrainConfig(
         num_epochs=n_epochs,
@@ -223,6 +226,14 @@ def finetune_model(
 
     return train(model, cfg, dataset)
 
+def load_model(model_path, cfg_path) -> HookedTransformer:
+    '''Loads a model into HookedTransformer given the path where its weights are stored.'''
+    if not (os.path.exists(model_path) and os.path.exists(cfg_path)):
+        raise ValueError('Path doesn\'t exist.')
+    model = HookedTransformer(torch.load(cfg_path, weights_only=False))
+    model.load_state_dict(torch.load(model_path))
+    return model
+
 if __name__ == '__main__':
     T0 = np.array([
         [0, 1, 0],
@@ -234,18 +245,21 @@ if __name__ == '__main__':
         [0, 0, 1],
         [0.5, 0, 0]
     ])
-    dataset = MarkovData(n_gen=10, gen_len=10, n_states=3, d_vocab=2, T_list=[T0, T1])
-    model = train_model(
-        dataset=dataset,
-        d_model=3,
-        d_head=3,
-        attn_only=True,
-        n_epochs=1000,
-        batch_size=40,
-        save_every=1000,
-        print_every=1000,
-        save_dir='toy_transformer/checkpoints'
-    )
+    dataset = MarkovData(n_gen=10000, gen_len=64, n_states=3, d_vocab=2, T_list=[T0, T1])
+
+    if os.path.exists('toy_transformer/checkpoints/model_0.pt'):
+        model = load_model('toy_transformer/checkpoints/model_0.pt',
+                           'toy_transformer/checkpoints/model_cfg.pt')
+    else:
+        model = train_model(
+            dataset=dataset,
+            n_epochs=5,
+            save_every=1000,
+            print_every=1000,
+            save_dir='toy_transformer/checkpoints'
+        )
+
+    model_2 = finetune_model(model, dataset, 5, save_dir=None)
 
     logits = model(torch.tensor([[0,1,1,0,1,0,0,1,1,0],
                                  [1,0,1,1,0,1,0,0,1,1],
@@ -253,3 +267,9 @@ if __name__ == '__main__':
     print(logits[:, -1, :])
     print(logits[:, -1, :].argmax(dim=-1))
     # Ground truth values: [1, 0, R]
+
+    print()
+    sample, states = dataset.model.sample_sequence(max_new_tokens=40)
+    preds = model(torch.tensor(sample, dtype=torch.int64)).argmax(dim=-1).flatten().tolist()
+    for s, pred in zip(sample[1:], preds[:-1]):
+        print(f'Actual: {s}, Predicted: {pred}')
