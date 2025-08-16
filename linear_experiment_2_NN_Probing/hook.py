@@ -10,8 +10,10 @@ class Hook:
     """A simple hook class to store the output of a layer."""
     def __init__(self):
         self.out = None
+
     def __call__(self, module, module_inputs, module_outputs):
         self.out = module_outputs[0] if isinstance(module_outputs, tuple) else module_outputs
+
 
 def generate_and_label_answers(
     statements,
@@ -21,8 +23,8 @@ def generate_and_label_answers(
     device,
     num_generations=32,
     output_dir="/kaggle/working/current_run",
-    temperature = 0.7,
-    top_p = 0.9,
+    temperature=0.7,
+    top_p=0.9,
     max_new_tokens=64
 ):
     """ 
@@ -61,8 +63,8 @@ def generate_and_label_answers(
         max_tokens=max_new_tokens,
         num_return_sequences=num_generations,
         do_sample=True,
-        top_p = 0.9,
-        temperature = 0.7
+        top_p=0.9,
+        temperature=0.7
     )
 
     # all_generated will be length = len(batch_statements) * num_generations
@@ -96,7 +98,6 @@ def generate_and_label_answers(
         json.dump(generations_cache, f, indent=2, ensure_ascii=False)
 
     print(f"\nGeneration and labeling complete for this slice. Cache updated at '{generations_cache_path}'.")
-
 
 
 def get_truth_probe_activations(
