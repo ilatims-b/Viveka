@@ -108,7 +108,8 @@ def get_truth_probe_activations(
     layer_indices,
     device,
     output_dir="/kaggle/working/current_run",
-    start_index=0
+    start_index=0,
+    end_index=0
 ):
     """
     STAGE 2: Load generated answers from the cache for a slice of statements,
@@ -119,7 +120,7 @@ def get_truth_probe_activations(
     generations_dir = os.path.join(output_dir, "generations")
     activations_dir = os.path.join(output_dir, "activations", model_name)
     os.makedirs(activations_dir, exist_ok=True)
-    generations_cache_path = os.path.join(generations_dir, f"{model_name}_generations.json")
+    generations_cache_path = os.path.join(generations_dir, f"generated_completions{}.json")
 
     if not os.path.exists(generations_cache_path):
         raise FileNotFoundError(f"Generations cache not found at '{generations_cache_path}'. Please run the 'generate' stage first.")
@@ -132,10 +133,9 @@ def get_truth_probe_activations(
     residual_hooks = {l: Hook() for l in layer_indices}
     handles = [layers[l].register_forward_hook(residual_hooks[l]) for l in layer_indices]
 
-    # This loop already had a tqdm wrapper
     for local_idx, stmt in enumerate(tqdm(
         statements,
-        desc="Stage 2: Extracting Activations",
+        desc="Stage : Extracting Activations",
         total=len(statements)
     )):
         global_stmt_idx = start_index + local_idx
