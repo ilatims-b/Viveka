@@ -163,18 +163,27 @@ def get_truth_probe_activations(
             model(**inputs)
 
         for l_idx in layer_indices:
-            all_layer_acts = residual_hooks[l_idx].out
-            sequence_lengths = inputs['attention_mask'].sum(dim=1)
-            last_token_indices = sequence_lengths - 1
-            last_token_activations = all_layer_acts[t.arange(len(all_layer_acts)), last_token_indices]
+            # --- Start of fix ---
+            if residual_hooks[l_idx].out is not None:
+                all_layer_acts = residual_hooks[l_idx].out
+                sequence_lengths = inputs['attention_mask'].sum(dim=1)
+                last_token_indices = sequence_lengths - 1
+                last_token_activations = all_layer_acts[t.arange(len(all_layer_acts)), last_token_indices]
 
-            save_path = os.path.join(activations_dir, f"layer_{l_idx}_stmt_{global_stmt_idx}.pt")
-            data_to_save = {
-                'activations': last_token_activations.cpu(),
-                'labels': t.tensor(final_labels, dtype=t.int).cpu()
-            }
-            t.save(data_to_save, save_path)
+                save_path = os.path.join(activations_dir, f"layer_{l_idx}_stmt_{global_stmt_idx}.pt")
+                data_to_save = {
+                    'activations': last_token_activations.cpu(),
+                    'labels': t.tensor(final_labels, dtype=t.int).cpu()
+                }
+                t.save(data_to_save, save_path)
+
+                # Explicitly clear the stored tensor to free VRAM
+                residual_hooks[l_idx].out = None
+            # --- End of fix ---
 
     for h in handles:
         h.remove()
+    
+    # It's also good practice to clear the dictionary itself after the loop
+    del residual_hooks
     print(f"\nActivation extraction complete for this slice. Probes saved in '{activations_dir}'.")
