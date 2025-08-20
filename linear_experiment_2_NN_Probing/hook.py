@@ -211,6 +211,7 @@ def get_truth_probe_activations(
         for l_idx in layer_indices:
             if residual_hooks[l_idx].out is not None:
                 all_layer_acts = residual_hooks[l_idx].out
+                last_token_indices = last_token_indices.cpu()
                 last_token_activations = all_layer_acts[t.arange(len(all_layer_acts)), last_token_indices]
 
                 save_path = os.path.join(activations_dir, f"layer_{l_idx}_stmt_{global_stmt_idx}.pt")
