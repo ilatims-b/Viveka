@@ -47,7 +47,8 @@ class Hook:
         self.out = None
 
     def __call__(self, module, module_inputs, module_outputs):
-        self.out = module_outputs[0] if isinstance(module_outputs, tuple) else module_outputs
+        out = module_outputs[0] if isinstance(module_outputs, tuple) else module_outputs
+        self.out = out.detach().cpu()
 
 _FIRST_RUN_DONE = False
 
