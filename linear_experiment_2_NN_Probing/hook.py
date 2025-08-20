@@ -186,4 +186,5 @@ def get_truth_probe_activations(
     
     # It's also good practice to clear the dictionary itself after the loop
     del residual_hooks
+    t.cuda.empty_cache()
     print(f"\nActivation extraction complete for this slice. Probes saved in '{activations_dir}'.")
