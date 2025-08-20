@@ -5,6 +5,41 @@ from tqdm import tqdm
 import torch as t
 from thefuzz import fuzz
 
+#############
+import torch
+import gc
+
+def report_gpu_memory(detail=False):
+    """
+    Reports the detailed GPU memory usage, listing tensors by size.
+    
+    Args:
+        detail (bool): If True, prints a full memory summary from PyTorch.
+    """
+    print(f"CUDA Memory Allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+    print(f"CUDA Memory Cached:    {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
+    
+    # --- Detailed Tensor Report ---
+    tensors = []
+    for obj in gc.get_objects():
+        try:
+            if torch.is_tensor(obj) and obj.is_cuda:
+                tensors.append((obj.nelement() * obj.element_size(), obj.size(), obj.dtype, type(obj)))
+        except:
+            pass
+            
+    # Sort by size in descending order
+    tensors.sort(key=lambda x: x[0], reverse=True)
+    
+    print("\n--- Top 5 Largest Tensors on GPU ---")
+    for size_bytes, shape, dtype, _ in tensors[:5]:
+        print(f"- Size: {size_bytes / 1024**2:.2f} MB | Shape: {str(list(shape)):<30} | Dtype: {dtype}")
+
+    if detail:
+        print("\n--- PyTorch Memory Summary ---")
+        print(torch.cuda.memory_summary(device=None, abbreviated=False))
+
+#############
 
 class Hook:
     """A simple hook class to store the output of a layer."""
@@ -14,6 +49,7 @@ class Hook:
     def __call__(self, module, module_inputs, module_outputs):
         self.out = module_outputs[0] if isinstance(module_outputs, tuple) else module_outputs
 
+_FIRST_RUN_DONE = False
 
 def generate_and_label_answers(
     statements,
@@ -111,6 +147,7 @@ def get_truth_probe_activations(
     start_index=0,
     end_index=0
 ):
+    global _FIRST_RUN_DONE
     """
     STAGE 2: Load generated answers from the cache for a slice of statements,
     and save the captured activations using the correct global index.
@@ -162,7 +199,13 @@ def get_truth_probe_activations(
         with t.no_grad():
             model(**inputs)
         sequence_lengths = inputs['attention_mask'].sum(dim=1)
-        last_token_indices = sequence_lengths - 1        
+        last_token_indices = sequence_lengths - 1       
+        if not _FIRST_RUN_DONE:
+            print("\n" + "="*40)
+            print("Memory report AFTER first forward pass:")
+            report_gpu_memory()
+            print("="*40 + "\n")
+            _FIRST_RUN_DONE = True
 
         for l_idx in layer_indices:
             if residual_hooks[l_idx].out is not None:
