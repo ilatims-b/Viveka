@@ -161,13 +161,12 @@ def get_truth_probe_activations(
         inputs = tokenizer(appended_prompts, padding=True, truncation=True, return_tensors="pt").to(device)
         with t.no_grad():
             model(**inputs)
+        sequence_lengths = inputs['attention_mask'].sum(dim=1)
+        last_token_indices = sequence_lengths - 1        
 
         for l_idx in layer_indices:
-            # --- Start of fix ---
             if residual_hooks[l_idx].out is not None:
                 all_layer_acts = residual_hooks[l_idx].out
-                sequence_lengths = inputs['attention_mask'].sum(dim=1)
-                last_token_indices = sequence_lengths - 1
                 last_token_activations = all_layer_acts[t.arange(len(all_layer_acts)), last_token_indices]
 
                 save_path = os.path.join(activations_dir, f"layer_{l_idx}_stmt_{global_stmt_idx}.pt")
@@ -177,9 +176,11 @@ def get_truth_probe_activations(
                 }
                 t.save(data_to_save, save_path)
 
-                # Explicitly clear the stored tensor to free VRAM
+                # --- FIX 1: Clear the hook and the tensors from the inner loop ---
+                del all_layer_acts, last_token_activations
                 residual_hooks[l_idx].out = None
-            # --- End of fix ---
+
+        del inputs, sequence_lengths, last_token_indices
 
     for h in handles:
         h.remove()
