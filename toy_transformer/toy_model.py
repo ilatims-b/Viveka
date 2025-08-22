@@ -20,6 +20,7 @@ class MarkovData(Dataset):
         seed: int = 42
     ):
         self.model = MarkovMealyModel(n_states, d_vocab, T_list, eta0, rng)
+        self.d_vocab = self.model.V
         self.gen_len = gen_len
         self.data = []
         self.states = []
@@ -34,10 +35,56 @@ class MarkovData(Dataset):
     def __getitem__(self, idx):
         return {'tokens': self.data[idx]}
 
+class MergeMarkovDatasets(Dataset):
+    """
+    Merges two MarkovData objects and returns a new Dataset object.
+
+    Mixing style is the manner in which the datasets should be merged.
+    `'random'` : Generations from both the datasets are randomly mixed.
+    `'alternate'` : The new dataset has generations alternating from both the datasets.
+    `'stack'` : Generations of the second dataset are added after generations of the first dataset.
+
+    Note that mixing_style may play an important role in training of the model.
+    """
+    def __init__(
+        self,
+        dataset1: MarkovData,
+        dataset2: MarkovData,
+        mixing_style: Literal['random', 'alternate', 'stack']
+        ):
+        self.model1 = dataset1.model
+        self.model2 = dataset2.model
+        assert dataset1.d_vocab == dataset2.d_vocab, 'Vocabulary size for the datasets does not match'
+        self.d_vocab = dataset1.d_vocab
+        assert dataset1.gen_len == dataset2.gen_len, 'Generations lengths for the datasets do not match'
+        self.gen_len = dataset1.gen_len
+        
+        data1 = list(zip(self.dataset1.data, self.dataset1.states))
+        data2 = list(zip(self.dataset2.data, self.dataset2.states))
+
+        if mixing_style == 'random':
+            merged = np.random.shuffle(data1 + data2)
+        elif mixing_style == 'alternate':
+            assert len(data1) == len(data2), 'Mixing style \'alternate\' is valid only when the size of both datasets is same'
+            merged = []
+            for i in range(len(data1)):
+                merged.append(data1[i])
+                merged.append(data2[i])
+        else:
+            merged = data1 + data2
+        
+        self.data = [d for d, s in merged]
+        self.states = [s for d, s in merged]
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        return {'tokens': self.data[idx]}
 
 def train_model(
     # Dataset
-    dataset: MarkovData,
+    dataset: MarkovData | MergeMarkovDatasets,
 
     # Transformer Architecture
     n_layers: int = 4,
@@ -47,7 +94,7 @@ def train_model(
     attn_only: bool = False,
     d_mlp: int = 256,
     act_fn: Literal['relu', 'gelu', 'silu', 'gelu_new', 'solu_ln', 'gelu_fast'] = 'relu',
-    normalization_type: Literal['LN', 'LNPre', 'RMS', 'RMSPre'] = 'LN',
+    normalization_type: Literal['LN', 'LNPre', 'RMS', 'RMSPre'] = None,
     positional_embedding_type: Literal['standard', 'rotary', 'shortformer'] = 'standard',
 
     # Training Hyperparameters
@@ -72,7 +119,7 @@ def train_model(
 
     Parameters
     ----------
-    dataset : MarkovData
+    dataset : MarkovData or MergeMarkovDatasets
         Training dataset containing token sequences generated from a 
         Mealy-Markov process.
 
@@ -91,7 +138,7 @@ def train_model(
     act_fn : {'relu', 'gelu', 'silu', 'gelu_new', 'solu_ln', 'gelu_fast'}
         Activation function used in MLP layers.
     normalization_type : {'LN', 'LNPre', 'RMS', 'RMSPre'}
-        Normalization strategy applied in transformer layers.
+        Normalization strategy applied in transformer layers. Defaults to no normalization
     positional_embedding_type : {'standard', 'rotary', 'shortformer'}
         Type of positional embeddings used in the model.
 
@@ -121,7 +168,7 @@ def train_model(
         The trained transformer model.
     """
 
-    d_vocab = dataset.model.V
+    d_vocab = dataset.d_vocab
     n_ctx = dataset.gen_len
     cfg = HookedTransformerConfig(
         n_layers=n_layers,
@@ -164,7 +211,7 @@ def train_model(
 
 def finetune_model(
     model: HookedTransformer,
-    dataset: MarkovData,
+    dataset: MarkovData | MergeMarkovDatasets,
     n_epochs: int,
     batch_size: int = 64,
     lr: float = 1e-2,
@@ -182,7 +229,7 @@ def finetune_model(
     ----------
     model : HookedTransformer
         A pre-trained model to finetune.
-    dataset : MarkovData
+    dataset : MarkovData or MergeMarkovDatasets
         Training dataset containing token sequences generated from a 
         Mealy-Markov process.
     n_epochs : int
@@ -226,8 +273,17 @@ def finetune_model(
 
     return train(model, cfg, dataset)
 
-def load_model(model_path, cfg_path) -> HookedTransformer:
-    '''Loads a model into HookedTransformer given the path where its weights are stored.'''
+def load_model(model_path: str, cfg_path: str) -> HookedTransformer:
+    '''
+    Loads a saved model into HookedTransformer.
+    
+    Parameters
+    ----------
+    model_path : str
+        Path to model's weights. (typically `model_0.pt`)
+    cfg_path : str
+        Path to model's config. (typically `model_cfg.pt`)
+    '''
     if not (os.path.exists(model_path) and os.path.exists(cfg_path)):
         raise ValueError('Path doesn\'t exist.')
     model = HookedTransformer(torch.load(cfg_path, weights_only=False))
