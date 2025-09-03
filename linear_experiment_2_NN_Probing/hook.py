@@ -48,14 +48,26 @@ def report_gpu_memory(detail=False):
 #############
 
 class Hook:
-    """A simple hook class to store the output of a layer."""
+    """Hook class compatible with both PyTorch forward hooks and TransformerLens HookPoints."""
     def __init__(self):
         self.out = None
 
-    def __call__(self, module, module_inputs, module_outputs):
-        out = module_outputs[0] if isinstance(module_outputs, tuple) else module_outputs
-        self.out = out.detach().cpu()
+    def __call__(self, *args, **kwargs):
+        # TransformerLens signature: (value, hook)
+        if len(args) == 2:
+            value, hook = args
+            self.out = value.detach().cpu()
+            return value  # TransformerLens hooks must return the (possibly modified) value
 
+        # PyTorch forward-hook signature: (module, module_inputs, module_outputs)
+        elif len(args) == 3:
+            module, module_inputs, module_outputs = args
+            out = module_outputs[0] if isinstance(module_outputs, tuple) else module_outputs
+            self.out = out.detach().cpu()
+            return
+
+        else:
+            raise ValueError("Hook called with unexpected signature. Expected (value, hook) or (module, inputs, outputs).")
 _FIRST_RUN_DONE = False
 
 def generate_and_label_answers(
@@ -238,9 +250,7 @@ def get_truth_probe_activations(
                 residual_hooks[l_idx].out = None
 
         del inputs, sequence_lengths, last_token_indices
-
-    for h in handles:
-        h.remove()
+    model.reset_hooks()
     
     # It's also good practice to clear the dictionary itself after the loop
     del residual_hooks
