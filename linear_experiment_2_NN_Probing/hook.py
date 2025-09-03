@@ -1,4 +1,4 @@
-from utils import (create_prompts, generate_model_answers)
+from utils import (create_prompts, generate_model_answers, load_model, args)
 import json
 import os
 from tqdm import tqdm
@@ -8,6 +8,12 @@ from thefuzz import fuzz
 #############
 import torch
 import gc
+############
+from transformer_lens import HookedTransformer
+
+#This was for using huggingface model and hooks 
+#tokenizer, model, layer_modules = load_model(args.model_repo_id, args.device)
+
 
 def report_gpu_memory(detail=False):
     """
@@ -153,8 +159,8 @@ def get_truth_probe_activations(
     STAGE 2: Load generated answers from the cache for a slice of statements,
     and save the captured activations using the correct global index.
     """
-    model_name = model.name_or_path.replace("/", "_") if hasattr(model, 'name_or_path') else 'unknown'
-
+    #model_name = model.name_or_path.replace("/", "_") if hasattr(model, 'name_or_path') else 'unknown'
+    model_name = 'gemma-2-2b-it'
     generations_dir = os.path.join(output_dir, "generations")
     activations_dir = os.path.join(output_dir, "activations", model_name)
     os.makedirs(activations_dir, exist_ok=True)
@@ -168,8 +174,14 @@ def get_truth_probe_activations(
     if -1 in layer_indices:
         layer_indices = list(range(len(layers)))
 
-    residual_hooks = {l: Hook() for l in layer_indices}
-    handles = [layers[l].register_forward_hook(residual_hooks[l]) for l in layer_indices]
+    #residual_hooks = {l: Hook() for l in layer_indices}
+    #handles = [layers[l].register_forward_hook(residual_hooks[l]) for l in layer_indices]
+
+    model = HookedTransformer.from_pretrained(
+        "google/gemma-2-2b-it",
+        device="cuda",
+        dtype=torch.float16
+    )
 
     for local_idx, stmt in enumerate(tqdm(
         statements,
@@ -182,7 +194,7 @@ def get_truth_probe_activations(
             print(f"Warning: Statement (Index {global_stmt_idx}) '{stmt[:50]}...' not found in cache. Skipping.")
             continue
 
-        output_exists = all(os.path.exists(os.path.join(activations_dir, f"layer_{l_idx}_stmt_{global_stmt_idx}.pt")) for l_idx in layer_indices)
+        output_exists = all(os.path.exists(os.path.join(activations_dir, f"layer_{l_idx}_stmt_{global_stmt_idx}_{}.pt")) for l_idx in layer_indices)
         if output_exists:
             continue
 

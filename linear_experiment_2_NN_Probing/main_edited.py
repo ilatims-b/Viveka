@@ -224,15 +224,18 @@ if __name__ == '__main__':
     print(args.max_new_tokens, "main_edited.py, argsparser")
     # --- Model Loading ---
     print(f"Loading model: {args.model_repo_id}...")
-    tokenizer, model, layer_modules = load_model(args.model_repo_id, args.device)
-    num_layers = len(layer_modules)
-    print("Memory after loading model : ")
-    report_gpu_memory()
+    #tokenizer, model, layer_modules = load_model(args.model_repo_id, args.device)
+    #num_layers = len(layer_modules)
+    #print("Memory after loading model : ")
+    #report_gpu_memory()
     # --- Stage Routing ---
     if args.stage in ['generate', 'activate', 'all']:
         if -1 in args.layers:
             args.layers = list(range(num_layers))
-
+        tokenizer, model, layer_modules = load_model(args.model_repo_id, args.device)
+        num_layers = len(layer_modules)
+        print("Memory after loading model : ")
+        report_gpu_memory()
         print(f"Loading dataset from: {args.dataset_path}")
         df, all_statements, all_correct_answers = load_statements(args.dataset_path)
 
