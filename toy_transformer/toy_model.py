@@ -1,10 +1,13 @@
 import os
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader, Subset
+from tqdm import tqdm
+import wandb
 from typing import Optional, Literal
 from transformer_lens import HookedTransformer, HookedTransformerConfig
-from transformer_lens.train import HookedTransformerTrainConfig, train
+from transformer_lens.train import HookedTransformerTrainConfig
 from mealymarkov import MarkovMealyModel
 
 class MarkovData(Dataset):
@@ -59,11 +62,12 @@ class MergeMarkovDatasets(Dataset):
         assert dataset1.gen_len == dataset2.gen_len, 'Generations lengths for the datasets do not match'
         self.gen_len = dataset1.gen_len
         
-        data1 = list(zip(self.dataset1.data, self.dataset1.states))
-        data2 = list(zip(self.dataset2.data, self.dataset2.states))
+        data1 = list(zip(dataset1.data, dataset1.states))
+        data2 = list(zip(dataset2.data, dataset2.states))
 
         if mixing_style == 'random':
-            merged = np.random.shuffle(data1 + data2)
+            merged = data1 + data2
+            np.random.shuffle(merged)
         elif mixing_style == 'alternate':
             assert len(data1) == len(data2), 'Mixing style \'alternate\' is valid only when the size of both datasets is same'
             merged = []
@@ -82,6 +86,108 @@ class MergeMarkovDatasets(Dataset):
     def __getitem__(self, idx):
         return {'tokens': self.data[idx]}
 
+def train(
+    model: HookedTransformer,
+    config: HookedTransformerTrainConfig,
+    train_data: Dataset,
+    val_data: Optional[Dataset] = None,
+    eval_every: Optional[int] = None
+) -> HookedTransformer:
+    """
+    Helper function to train an HookedTransformer model on an autoregressive language modeling task.
+    (Slightly modified version of TransformerLens one.)
+    Args:
+        model: The model to train
+        config: The training configuration
+        train_data: The dataset to train on
+        val_data: The dataset to use for validation
+        eval_every: Number of epochs after which to run the model on `val_data`
+    Returns:
+        The trained model
+    """
+    torch.manual_seed(config.seed)
+    model.train()
+    if config.wandb:
+        if config.wandb_project_name is None:
+            config.wandb_project_name = "easy-transformer"
+        wandb.init(project=config.wandb_project_name, config=vars(config))
+
+    if config.optimizer_name in ["Adam", "AdamW"]:
+        # Weight decay in Adam is implemented badly, so use AdamW instead (see PyTorch AdamW docs)
+        if config.weight_decay is not None:
+            optimizer = optim.AdamW(
+                model.parameters(),
+                lr=config.lr,
+                weight_decay=config.weight_decay,
+            )
+        else:
+            optimizer = optim.Adam(
+                model.parameters(),
+                lr=config.lr,
+            )
+    elif config.optimizer_name == "SGD":
+        optimizer = optim.SGD(
+            model.parameters(),
+            lr=config.lr,
+            weight_decay=(config.weight_decay if config.weight_decay is not None else 0.0),
+            momentum=config.momentum,
+        )
+    else:
+        raise ValueError(f"Optimizer {config.optimizer_name} not supported")
+
+    scheduler = None
+    if config.warmup_steps > 0:
+        scheduler = optim.lr_scheduler.LambdaLR(
+            optimizer,
+            lr_lambda=lambda step: min(1.0, step / config.warmup_steps),
+        )
+
+    train_dataloader = DataLoader(train_data, batch_size=config.batch_size, shuffle=True)
+    val_dataloader = DataLoader(val_data, batch_size=len(val_data)) if val_data else None
+
+    model = model.to(config.device)
+
+    for epoch in tqdm(range(1, config.num_epochs + 1)):
+        samples = 0
+        for step, batch in enumerate(train_dataloader):
+            tokens = batch["tokens"].to(config.device)
+            loss = model(tokens, return_type="loss")
+            loss.backward()
+            if config.max_grad_norm is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), config.max_grad_norm)
+            optimizer.step()
+            if config.warmup_steps > 0:
+                assert scheduler is not None
+                scheduler.step()
+            optimizer.zero_grad()
+
+            samples += tokens.shape[0]
+
+            if config.wandb:
+                wandb.log({"train_loss": loss.item(), "samples": samples, "epoch": epoch})
+
+        if config.print_every is not None and epoch % config.print_every == 0:
+            print(f"Epoch {epoch} Samples {samples} Step {step} Training Loss {loss.item()}")
+
+        if (
+            config.save_every is not None
+            and epoch % config.save_every == 0
+            and config.save_dir is not None
+        ):
+            torch.save(model.state_dict(), f"{config.save_dir}/model_{epoch}.pt")
+
+        if val_dataloader and eval_every is not None and epoch % eval_every == 0:
+            for data in val_dataloader:
+                model.eval()
+                tokens = data["tokens"].to(config.device)
+                with torch.no_grad():
+                    loss = model(tokens, return_type="loss")
+                if config.wandb:
+                    wandb.log({"val_loss": loss.item(), "epoch": epoch})
+                print(f"Epoch {epoch} Validation Loss {loss}")
+
+    return model
+
 def train_model(
     # Dataset
     dataset: MarkovData | MergeMarkovDatasets,
@@ -98,7 +204,7 @@ def train_model(
     positional_embedding_type: Literal['standard', 'rotary', 'shortformer'] = 'standard',
 
     # Training Hyperparameters
-    n_epochs: int = 1e6,
+    n_epochs: int = 100,
     batch_size: int = 64,
     lr: float = 1e-2,
     optimizer_name: Literal['Adam', 'AdamW', 'SGD'] = 'SGD',
@@ -106,9 +212,11 @@ def train_model(
     # System / IO
     device: str = "cpu",
     seed: int = 42,
-    save_every: int = 1000,
+    save_every: int = 1,
     save_dir: str = "./checkpoints",
-    print_every: int = 100
+    print_every: int = 1,
+    eval_every: int = 1,
+    val_frac: float = 0.2
 ) -> HookedTransformer:
     """
     Train a HookedTransformer on sequences generated from a Mealy Markov model.
@@ -156,11 +264,15 @@ def train_model(
     seed : int
         Random seed for reproducibility
     save_every : int
-        Frequency (in steps) to checkpoint the model.
+        Frequency (in epochs) to checkpoint the model.
     save_dir : str
         Directory where checkpoints will be saved.
     print_every : int
-        Frequency (in steps) to log training progress.
+        Frequency (in epochs) to log training progress.
+    eval_every : int
+        Evaluate on a validation dataset
+    val_frac : float
+        Fraction of `dataset` to be used as validation dataset
 
     Returns
     -------
@@ -207,7 +319,17 @@ def train_model(
         print_every=print_every
     )
 
-    return train(model, train_cfg, dataset)
+    # Train-val split
+    if val_frac:
+        train_size = int(len(dataset) * (1 - val_frac))
+        indices = torch.randperm(len(dataset))
+        train_indices = indices[:train_size]
+        val_indices = indices[train_size:]
+        train_data = Subset(dataset, train_indices)
+        val_data = Subset(dataset, val_indices)
+        return train(model, train_cfg, train_data, val_data, eval_every)
+    else:
+        return train(model, train_cfg, dataset)
 
 def finetune_model(
     model: HookedTransformer,
@@ -218,9 +340,11 @@ def finetune_model(
     optimizer_name: Literal['Adam', 'AdamW', 'SGD'] = 'SGD',
     device: str = "cpu",
     seed: int = 42,
-    save_every: int = 1000,
+    save_every: int = 1,
     save_dir: str = "./checkpoints",
-    print_every: int = 100
+    print_every: int = 1,
+    eval_every: int = 1,
+    val_frac: float = 0.2
 ) -> HookedTransformer:
     """
     Finetune a pretrained HookedTransformer on sequences generated from a Mealy Markov model.
@@ -245,11 +369,15 @@ def finetune_model(
     seed : int
         Random seed for reproducibility
     save_every : int
-        Frequency (in steps) to checkpoint the model.
+        Frequency (in epochs) to checkpoint the model.
     save_dir : str
         Directory where checkpoints will be saved.
     print_every : int
-        Frequency (in steps) to log training progress.
+        Frequency (in epochs) to log training progress.
+    eval_every : int
+        Evaluate on a validation dataset
+    val_frac : float
+        Fraction of `dataset` to be used as validation dataset
 
     Returns
     -------
@@ -271,7 +399,17 @@ def finetune_model(
         print_every=print_every
     )
 
-    return train(model, cfg, dataset)
+    # Train-val split
+    if val_frac:
+        train_size = int(len(dataset) * (1 - val_frac))
+        indices = torch.randperm(len(dataset))
+        train_indices = indices[:train_size]
+        val_indices = indices[train_size:]
+        train_data = Subset(dataset, train_indices)
+        val_data = Subset(dataset, val_indices)
+        return train(model, cfg, train_data, val_data, eval_every)
+    else:
+        return train(model, cfg, dataset)
 
 def load_model(model_path: str, cfg_path: str) -> HookedTransformer:
     '''
