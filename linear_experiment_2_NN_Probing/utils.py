@@ -681,7 +681,7 @@ from transformer_lens import HookedTransformer
 
 def load_model(model_repo_id: str, device: str):
     print(f"Loading TransformerLens model: {model_repo_id}")
-    model = HookedTransformer.from_pretrained(model_repo_id, device=device,dtype=t.bfloat16)
+    model = HookedTransformer.from_pretrained(model_repo_id, device=device,dtype=t.float16)
     tokenizer = model.tokenizer
     layers = model.blocks  # TransformerLens uses blocks instead of model.layers
     return tokenizer, model, layers
