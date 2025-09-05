@@ -220,39 +220,12 @@ def get_truth_probe_activations(
             appended_prompts.extend([prompt_true, prompt_false])
             final_labels.extend([ground_truth, 1 - ground_truth])
 
-        inputs = tokenizer(appended_prompts, padding=True, truncation=True, return_tensors="pt").to(device)
+        tokens = tokenizer(appended_prompts, padding=True, truncation=True, return_tensors="pt").to(device)
         with t.no_grad():
-            model(**inputs)
-        sequence_lengths = inputs['attention_mask'].sum(dim=1)
-        last_token_indices = sequence_lengths - 1       
-        if not _FIRST_RUN_DONE:
-            print("\n" + "="*40)
-            print("Memory report AFTER first forward pass:")
-            report_gpu_memory()
-            print("="*40 + "\n")
-            _FIRST_RUN_DONE = True
+            logits, cache = model.run_with_cache(tokens)
+        resid_posts = [cache[f"blocks.{layer}.hook_resid_post"] for layer in range(model.cfg.n_layers)]
+        last_token_resid = resid_posts[:, :, -1, :]
+        
 
-        for l_idx in layer_indices:
-            if residual_hooks[l_idx].out is not None:
-                all_layer_acts = residual_hooks[l_idx].out
-                last_token_indices = last_token_indices.cpu()
-                last_token_activations = all_layer_acts[t.arange(len(all_layer_acts)), last_token_indices]
-
-                save_path = os.path.join(activations_dir, f"layer_{l_idx}_stmt_{global_stmt_idx}.pt")
-                data_to_save = {
-                    'activations': last_token_activations.cpu(),
-                    'labels': t.tensor(final_labels, dtype=t.int).cpu()
-                }
-                t.save(data_to_save, save_path)
-
-                # --- FIX 1: Clear the hook and the tensors from the inner loop ---
-                del all_layer_acts, last_token_activations
-                residual_hooks[l_idx].out = None
-
-        del inputs, sequence_lengths, last_token_indices
-    model.reset_hooks()
-    
-    # It's also good practice to clear the dictionary itself after the loop
-    del residual_hooks
     t.cuda.empty_cache()
     print(f"\nActivation extraction complete for this slice. Probes saved in '{activations_dir}'.")

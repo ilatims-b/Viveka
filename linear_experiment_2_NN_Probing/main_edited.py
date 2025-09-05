@@ -190,6 +190,9 @@ def train_probing_network(dataset_dir, train_layers, device):
 # === Main Execution Block =========================================
 
 if __name__ == '__main__':
+    unique_gen = pd.read_json(r"/kaggle/working/merge/generated_completions_20k.json")
+    len_list = []
+    for i in 
     parser = argparse.ArgumentParser(description="Run a multi-stage pipeline to generate data, extract activations, run SVD, and train a truth probe.")
     # --- Core Arguments ---
     parser.add_argument('--dataset_path', type=str, required=True, help="Path to the dataset CSV file.")
@@ -266,16 +269,22 @@ if __name__ == '__main__':
 
 
         if args.stage in ['activate', 'all']:
+            batch_size = args.gen_batch_size
+            for start_idx in range(0, len(statements_to_process), batch_size):
+                end_idx = min(start_idx + batch_size, len(statements_to_process))
+                batch_statements = statements_to_process[start_idx:end_idx]
+
             get_truth_probe_activations(
-                statements=statements_to_process,
+                statements=batch_statements,
                 tokenizer=tokenizer,
                 model=model,
                 layers=layer_modules,
                 layer_indices=args.layers,
                 device=args.device,
                 output_dir=args.probe_output_dir,
-                start_index=start,
-                end_index=end
+                start_index=start_idx,
+                end_index=end_idx,
+                batch_list = 
             )
 
     if args.stage in ['svd', 'all']:
