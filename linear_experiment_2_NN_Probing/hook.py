@@ -206,7 +206,7 @@ def get_truth_probe_activations(
             print(f"Warning: Statement (Index {global_stmt_idx}) '{stmt[:50]}...' not found in cache. Skipping.")
             continue
 
-        output_exists = all(os.path.exists(os.path.join(activations_dir, f"layer_{l_idx}_stmt_{global_stmt_idx}_{}.pt")) for l_idx in layer_indices)
+        output_exists = all(os.path.exists(os.path.join(activations_dir, f"layer_{l_idx}_stmt_{global_stmt_idx}.pt")) for l_idx in layer_indices)
         if output_exists:
             continue
 
