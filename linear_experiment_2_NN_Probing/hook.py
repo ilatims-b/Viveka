@@ -1,4 +1,4 @@
-from utils import (create_prompts, generate_model_answers, load_model, args)
+from utils import (create_prompts, generate_model_answers)
 import json
 import os
 from tqdm import tqdm
