@@ -157,23 +157,18 @@ def generate_model_answers(
         truncation=True,
         add_special_tokens=True
     ).to(device)
-
+    tokens = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True)["input_ids"].to(device)
     # Generate in batch
     print(max_tokens, " : Max tokens at utils.py, generate_model_answers")
     with t.no_grad():
         generated = model.generate(
-            input_ids=inputs['input_ids'],
-            attention_mask=inputs['attention_mask'],
-            max_new_tokens=max_tokens,
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-            stopping_criteria=stopping_criteria,
-            num_return_sequences=num_return_sequences,
-            temperature=temperature,
-            do_sample=do_sample,
-            top_p=top_p,
-            **(additional_kwargs or {})  # To handle exceptions of unexpected args
-        )
+        tokens,
+        max_new_tokens=max_tokens,
+        temperature=temperature,
+        top_k=None,   # TransformerLens doesn't support top_k, you can leave it None
+        top_p=top_p,
+        do_sample=do_sample
+)
 
     # Decode outputs
     all_model_answers_raw = []
@@ -185,7 +180,7 @@ def generate_model_answers(
         input_len = inputs['input_ids'][prompt_idx].shape[0]
 
         generated_ids = generated[i][input_len:]
-        model_answer_raw = tokenizer.decode(generated_ids, skip_special_tokens=True)
+        model_answer_raw = model.to_string(generated_ids)
 
         all_model_answers_raw.append(model_answer_raw)
         all_generated_ids.append(generated_ids.cpu())
@@ -682,22 +677,15 @@ def _cleanup_extracted_answer(decoded_output):
     """
     return extract_answer_direct(decoded_output, "")
 
+from transformer_lens import HookedTransformer
+
 def load_model(model_repo_id: str, device: str):
-    print(f"Loading from Hugging Face Hub: {model_repo_id}")
-    tokenizer = AutoTokenizer.from_pretrained(model_repo_id)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_repo_id,
-        device_map='auto',
-        torch_dtype=t.bfloat16 if t.cuda.is_available() and t.cuda.is_bf16_supported() else t.float16
-    )
-    print(f"Using dtype:{torch.dtype}")
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-        model.config.pad_token_id = model.config.eos_token_id
-    layers = getattr(getattr(model, 'model', None), 'layers', None)
-    if layers is None:
-        raise AttributeError(f"Could not find layers for model {model_repo_id}. Please check the model architecture.")
+    print(f"Loading TransformerLens model: {model_repo_id}")
+    model = HookedTransformer.from_pretrained(model_repo_id, device=device)
+    tokenizer = model.tokenizer
+    layers = model.blocks  # TransformerLens uses blocks instead of model.layers
     return tokenizer, model, layers
+
 
 def load_statements(dataset_name):
     path = f"{dataset_name}"
