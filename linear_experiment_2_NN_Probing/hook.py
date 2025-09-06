@@ -193,7 +193,7 @@ def get_truth_probe_activations(
     model = HookedTransformer.from_pretrained(
         "google/gemma-2-2b-it",
         device="cuda",
-        dtype=torch.bfloat16
+        dtype=torch.float16
     )
 
     for local_idx, stmt in enumerate(tqdm(
