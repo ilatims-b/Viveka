@@ -213,6 +213,8 @@ def train_model(
     batch_size: int = 64,
     lr: float = 1e-2,
     optimizer_name: Literal['Adam', 'AdamW', 'SGD'] = 'SGD',
+    wandb: bool = False,
+    wandb_project_name: Optional[str] = None,
 
     # System / IO
     device: str = "cpu",
@@ -263,6 +265,10 @@ def train_model(
         Learning rate for optimization.
     optimizer_name : {'Adam', 'AdamW', 'SGD'}
         Optimizer to use.
+    wandb : bool
+        Whether to use wandb to log training
+    wandb_project_name : str, optional
+        Name for wandb project, defaults to 'easy-transformer'
     
     device : str
         Device where the model will be trained (e.g., ``"cpu"``, ``"cuda"``).
@@ -317,6 +323,8 @@ def train_model(
         batch_size=batch_size,
         lr=lr,
         optimizer_name=optimizer_name,
+        wandb=wandb,
+        wandb_project_name=wandb_project_name,
         device=device,
         seed=seed,
         save_every=save_every,
@@ -343,6 +351,8 @@ def finetune_model(
     batch_size: int = 64,
     lr: float = 1e-2,
     optimizer_name: Literal['Adam', 'AdamW', 'SGD'] = 'SGD',
+    wandb: bool = False,
+    wandb_project_name: Optional[str] = None,
     device: str = "cpu",
     seed: int = 42,
     save_every: int = 1,
@@ -368,7 +378,11 @@ def finetune_model(
     lr : float
         Learning rate for optimization.
     optimizer_name : {'Adam', 'AdamW', 'SGD'}
-        Optimizer to use.    
+        Optimizer to use.
+    wandb : bool
+        Whether to use wandb to log training
+    wandb_project_name : str, optional
+        Name for wandb project, defaults to 'easy-transformer'
     device : str
         Device where the model will be trained (e.g., ``"cpu"``, ``"cuda"``).
     seed : int
@@ -397,6 +411,8 @@ def finetune_model(
         batch_size=batch_size,
         lr=lr,
         optimizer_name=optimizer_name,
+        wandb=wandb,
+        wandb_project_name=wandb_project_name,
         device=device,
         seed=seed,
         save_every=save_every,
