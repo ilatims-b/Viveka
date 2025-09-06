@@ -190,7 +190,7 @@ def train_probing_network(dataset_dir, train_layers, device):
 # === Main Execution Block =========================================
 
 if __name__ == '__main__':
-    df_unique = pd.read_json(r"/kaggle/working/merge/unique_generations_20K.json")
+    df_unique = pd.read_json(r"/kaggle/working/merge/merged_generations/unique_generations_20K.json")
     df_unique
     row = df_unique.loc["generated_answers"]
     len_list = row.apply(len).tolist()
