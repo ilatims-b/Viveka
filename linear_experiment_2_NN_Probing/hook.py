@@ -163,11 +163,11 @@ def get_truth_probe_activations(
     layer_indices,
     device,
     batch_list,
-    output_dir="/kaggle/working/current_run",
+    output_dir="current_run",
     start_index=0,
     end_index=0
 ):
-    global _FIRST_RUN_DONE
+    #global _FIRST_RUN_DONE
     """
     STAGE 2: Load generated answers from the cache for a slice of statements,
     and save the captured activations using the correct global index.

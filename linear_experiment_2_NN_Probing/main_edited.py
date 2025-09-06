@@ -190,7 +190,7 @@ def train_probing_network(dataset_dir, train_layers, device):
 # === Main Execution Block =========================================
 
 if __name__ == '__main__':
-    df_unique = pd.read_json(r"/kaggle/working/merge/merged_generations/unique_generations_20K.json")
+    df_unique = pd.read_json(r"merge/merged_generations/unique_generations_20K.json")
     df_unique
     row = df_unique.loc["generated_answers"]
     len_list = row.apply(len).tolist()
@@ -217,7 +217,7 @@ if __name__ == '__main__':
     
     # --- Configuration Arguments ---
     parser.add_argument('--layers', nargs='+', type=int, default=[-1], help="List of layer indices to probe. -1 for all layers.")
-    parser.add_argument('--probe_output_dir', type=str, default='/kaggle/working/current_run', help="Directory to save generated data and activations.")
+    parser.add_argument('--probe_output_dir', type=str, default='current_run', help="Directory to save generated data and activations.")
     parser.add_argument('--num_generations', type=int, default=32, help="Number of answers to generate per statement for probing.")
 
     # --- SVD & Training ---
