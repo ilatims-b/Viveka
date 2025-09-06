@@ -190,11 +190,11 @@ def get_truth_probe_activations(
     #residual_hooks = {l: Hook() for l in layer_indices}
     #handles = [layers[l].register_forward_hook(residual_hooks[l]) for l in layer_indices]
 
-    model = HookedTransformer.from_pretrained(
-        "google/gemma-2-2b-it",
-        device="cuda",
-        dtype=torch.float16
-    )
+    # model = HookedTransformer.from_pretrained(
+    #     "google/gemma-2-2b-it",
+    #     device="cuda",
+    #     dtype=torch.float16
+    # )
 
     for local_idx, stmt in enumerate(tqdm(
         statements,
