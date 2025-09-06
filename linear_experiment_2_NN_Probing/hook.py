@@ -221,9 +221,16 @@ def get_truth_probe_activations(
             appended_prompts.extend([prompt_true, prompt_false])
             final_labels.extend([ground_truth, 1 - ground_truth])
 
-        tokens = tokenizer(appended_prompts, padding=True, truncation=True, return_tensors="pt").to(device)
+        tokens = tokenizer(
+                    appended_prompts,
+                    padding=True,
+                    truncation=True,
+                    return_tensors="pt"
+                )
+        input_ids = tokens["input_ids"].to(device)
         with t.no_grad():
-            logits, cache = model.run_with_cache(tokens)
+            logits, cache = model.run_with_cache(input_ids)
+            
         resid_posts = [cache[f"blocks.{layer}.hook_resid_post"] for layer in range(model.cfg.n_layers)]
         last_token_resid = resid_posts[:, :, -1, :]
         batch_slice = batch_list
