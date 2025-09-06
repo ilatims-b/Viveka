@@ -163,7 +163,7 @@ def get_truth_probe_activations(
     layer_indices,
     device,
     batch_list,
-    output_dir="current_run",
+    output_dir="/kaggle/working/current_run",
     start_index=0,
     end_index=0
 ):
