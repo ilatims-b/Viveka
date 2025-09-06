@@ -193,7 +193,7 @@ def get_truth_probe_activations(
     model = HookedTransformer.from_pretrained(
         "google/gemma-2-2b-it",
         device="cuda",
-        dtype=torch.float16
+        dtype=torch.bfloat16
     )
 
     for local_idx, stmt in enumerate(tqdm(
@@ -228,7 +228,7 @@ def get_truth_probe_activations(
         last_token_resid = resid_posts[:, :, -1, :]
         batch_slice = batch_list
         offset = 0
-        for stmt_idx, num_ans in enumerate(batch_list):
+        for stmt_idx, num_ans in enumerate(batch_slice):
             num_rows = num_ans * 2
             stmt_labels = final_labels[offset:offset+num_rows]
             for l_idx in range(model.cfg.n_layers):
