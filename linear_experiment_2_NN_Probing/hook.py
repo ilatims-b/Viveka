@@ -221,19 +221,28 @@ def get_truth_probe_activations(
             appended_prompts.extend([prompt_true, prompt_false])
             final_labels.extend([ground_truth, 1 - ground_truth])
 
-        tokens = tokenizer(
-                    appended_prompts,
-                    padding=True,
-                    truncation=True,
-                    return_tensors="pt"
-                )
-        input_ids = tokens["input_ids"].to(device)
-        with t.no_grad():
-            logits, cache = model.run_with_cache(input_ids)
-            cache.to(device="cpu")
-            
-        resid_posts = [cache[f"blocks.{layer}.hook_resid_post"] for layer in range(model.cfg.n_layers)]
-        last_token_resid = [layer_resid[:, -1, :] for layer_resid in resid_posts]
+        batch_size = 1  # or small number like 2–4
+        all_last_token_resid = [[] for _ in range(model.cfg.n_layers)]  # list per layer
+
+        for i in range(0, len(appended_prompts), batch_size):
+            batch = appended_prompts[i:i+batch_size]
+
+            tokens = tokenizer(batch, padding=True, truncation=True, return_tensors="pt")
+            input_ids = tokens["input_ids"].to(device)
+
+            with torch.no_grad():
+                logits, cache = model.run_with_cache(input_ids)
+
+            # Extract last-token activations for each layer and move to CPU immediately
+            for l_idx in range(model.cfg.n_layers):
+                layer_last_token = cache[f"blocks.{l_idx}.hook_resid_post"][:, -1, :].cpu()
+                all_last_token_resid[l_idx].append(layer_last_token)
+
+            torch.cuda.empty_cache()
+
+# Combine all batches for each layer
+        last_token_resid = [torch.cat(all_last_token_resid[l_idx], dim=0) for l_idx in range(model.cfg.n_layers)]
+       
         batch_slice = batch_list
         offset = 0
         for stmt_idx, num_ans in enumerate(batch_slice):
