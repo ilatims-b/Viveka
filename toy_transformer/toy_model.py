@@ -431,7 +431,9 @@ def load_model(model_path: str, cfg_path: str, device: str = 'cpu') -> HookedTra
     '''
     if not (os.path.exists(model_path) and os.path.exists(cfg_path)):
         raise ValueError('Path doesn\'t exist.')
-    model = HookedTransformer(torch.load(cfg_path, weights_only=False, map_location=device))
+    cfg = torch.load(cfg_path, weights_only=False, map_location=device)
+    cfg.device = device
+    model = HookedTransformer(cfg)
     model.load_state_dict(torch.load(model_path, map_location=device))
     return model
 
