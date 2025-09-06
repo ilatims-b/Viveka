@@ -235,6 +235,8 @@ if __name__ == '__main__':
     #print("Memory after loading model : ")
     #report_gpu_memory()
     # --- Stage Routing ---
+    output_dir = args.probes_output_dir
+    print(output_dir, "Output dir")
     if args.stage in ['generate', 'activate', 'all']:
         if -1 in args.layers:
             args.layers = list(range(0,26))
