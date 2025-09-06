@@ -27,8 +27,13 @@ class MarkovData(Dataset):
         self.gen_len = gen_len
         self.data = []
         self.states = []
+
+        rng = rng or np.random.default_rng(seed)
         for i in range(n_gen):
-            tokens, states = self.model.sample_sequence(max_new_tokens=gen_len, seed=seed)
+            tokens, states = self.model.sample_sequence(
+                max_new_tokens=gen_len,
+                seed=rng.integers(2**32)
+            )
             self.data.append(torch.tensor(tokens, dtype=torch.int64))
             self.states.append(states)
 
@@ -411,7 +416,7 @@ def finetune_model(
     else:
         return train(model, cfg, dataset)
 
-def load_model(model_path: str, cfg_path: str) -> HookedTransformer:
+def load_model(model_path: str, cfg_path: str, device: str = 'cpu') -> HookedTransformer:
     '''
     Loads a saved model into HookedTransformer.
     
@@ -421,11 +426,13 @@ def load_model(model_path: str, cfg_path: str) -> HookedTransformer:
         Path to model's weights. (typically `model_0.pt`)
     cfg_path : str
         Path to model's config. (typically `model_cfg.pt`)
+    device : str
+        Device to load the model on
     '''
     if not (os.path.exists(model_path) and os.path.exists(cfg_path)):
         raise ValueError('Path doesn\'t exist.')
-    model = HookedTransformer(torch.load(cfg_path, weights_only=False))
-    model.load_state_dict(torch.load(model_path))
+    model = HookedTransformer(torch.load(cfg_path, weights_only=False, map_location=device))
+    model.load_state_dict(torch.load(model_path, map_location=device))
     return model
 
 if __name__ == '__main__':
