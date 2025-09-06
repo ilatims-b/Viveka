@@ -249,7 +249,7 @@ def get_truth_probe_activations(
             num_rows = num_ans * 2
             stmt_labels = final_labels[offset:offset+num_rows]
             for l_idx in range(model.cfg.n_layers):
-                q_acts = last_token_resid[l_idx, offset:offset+num_rows, :]
+                q_acts = last_token_resid[l_idx][offset:offset+num_rows, :]
 
                 # save as dict containing both activations + labels in .pt file
                 data = {
