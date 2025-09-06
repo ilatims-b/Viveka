@@ -230,9 +230,10 @@ def get_truth_probe_activations(
         input_ids = tokens["input_ids"].to(device)
         with t.no_grad():
             logits, cache = model.run_with_cache(input_ids)
+            cache.to(device="cpu")
             
         resid_posts = [cache[f"blocks.{layer}.hook_resid_post"] for layer in range(model.cfg.n_layers)]
-        last_token_resid = resid_posts[:, :, -1, :]
+        last_token_resid = [layer_resid[:, -1, :] for layer_resid in resid_posts]
         batch_slice = batch_list
         offset = 0
         for stmt_idx, num_ans in enumerate(batch_slice):
