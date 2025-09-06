@@ -162,6 +162,7 @@ def get_truth_probe_activations(
     layers,
     layer_indices,
     device,
+    batch_list,
     output_dir="/kaggle/working/current_run",
     start_index=0,
     end_index=0
@@ -225,7 +226,25 @@ def get_truth_probe_activations(
             logits, cache = model.run_with_cache(tokens)
         resid_posts = [cache[f"blocks.{layer}.hook_resid_post"] for layer in range(model.cfg.n_layers)]
         last_token_resid = resid_posts[:, :, -1, :]
-        
+        batch_slice = batch_list
+        offset = 0
+        for stmt_idx, num_ans in enumerate(batch_list):
+            num_rows = num_ans * 2
+            stmt_labels = final_labels[offset:offset+num_rows]
+            for l_idx in range(model.cfg.n_layers):
+                q_acts = last_token_resid[l_idx, offset:offset+num_rows, :]
+
+                # save as dict containing both activations + labels in .pt file
+                data = {
+                    "activations": q_acts.cpu(),
+                    "labels": torch.tensor(stmt_labels)
+                }
+                save_path = os.path.join(
+                    activations_dir,
+                    f"layer_{l_idx}_stmt_{global_stmt_idx + stmt_idx}.pt"
+                )
+                torch.save(data, save_path)
+            offset += num_rows
 
     t.cuda.empty_cache()
-    print(f"\nActivation extraction complete for this slice. Probes saved in '{activations_dir}'.")
+    print(f"\nActivation extraction complete for this slice. Activations saved in '{activations_dir}'.")
