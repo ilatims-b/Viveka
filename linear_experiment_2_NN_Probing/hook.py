@@ -77,7 +77,7 @@ def generate_and_label_answers(
     model,
     device,
     num_generations=32,
-    output_dir="/kaggle/working/current_run",
+    output_dir="current_run",
     temperature=0.7,
     top_p=0.9,
     max_new_tokens=64
@@ -163,7 +163,7 @@ def get_truth_probe_activations(
     layer_indices,
     device,
     batch_list,
-    output_dir="/kaggle/working/current_run",
+    output_dir="current_run",
     start_index=0,
     end_index=0
 ):
@@ -180,7 +180,7 @@ def get_truth_probe_activations(
     generations_cache_path = os.path.join(generations_dir, "generated_completions_20k.json")
 
     if not os.path.exists(generations_cache_path):
-        raise FileNotFoundError(f"Generations cache not found at '{generations_cache_path}'. Please run the 'generate' stage first.")
+        raise FileNotFoundError(f"Generations cache not found at {generations_cache_path}. Please run the 'generate' stage first.")
     with open(generations_cache_path, 'r', encoding='utf-8') as f:
         generations_cache = json.load(f)
 
