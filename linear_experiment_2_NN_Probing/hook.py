@@ -221,7 +221,7 @@ def get_truth_probe_activations(
             appended_prompts.extend([prompt_true, prompt_false])
             final_labels.extend([ground_truth, 1 - ground_truth])
 
-        batch_size = 4  # or small number like 2–4
+        batch_size = 8  # or small number like 2–4
         all_last_token_resid = [[] for _ in range(model.cfg.n_layers)]  # list per layer
 
         for i in range(0, len(appended_prompts), batch_size):
@@ -231,7 +231,7 @@ def get_truth_probe_activations(
             input_ids = tokens["input_ids"].to(device)
 
             with torch.no_grad():
-                logits, cache = model.run_with_cache(input_ids)
+                _, cache = model.run_with_cache(input_ids)
 
             # Extract last-token activations for each layer and move to CPU immediately
             for l_idx in range(model.cfg.n_layers):
