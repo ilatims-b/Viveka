@@ -232,12 +232,14 @@ def get_truth_probe_activations(
 
             with torch.no_grad():
                 _, cache = model.run_with_cache(input_ids)
-
+                torch.cuda.empty_cache()
             # Extract last-token activations for each layer and move to CPU immediately
             for l_idx in range(model.cfg.n_layers):
                 layer_last_token = cache[f"blocks.{l_idx}.hook_resid_post"][:, -1, :].cpu()
+                del cache
+                torch.cuda.empty_cache()
                 all_last_token_resid[l_idx].append(layer_last_token)
-
+            del all_last_token_resid, tokens, layer_last_token
             torch.cuda.empty_cache()
 
 # Combine all batches for each layer
