@@ -239,7 +239,7 @@ def get_truth_probe_activations(
                 torch.cuda.empty_cache()
                 all_last_token_resid[l_idx].append(layer_last_token)
             del cache
-            del all_last_token_resid, tokens, layer_last_token
+            del tokens, layer_last_token
             torch.cuda.empty_cache()
 
 # Combine all batches for each layer
