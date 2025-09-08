@@ -243,25 +243,25 @@ def get_truth_probe_activations(
 # Combine all batches for each layer
         last_token_resid = [torch.cat(all_last_token_resid[l_idx], dim=0) for l_idx in range(model.cfg.n_layers)]
        
-        batch_slice = batch_list
+        batch_slice = batch_list[global_stmt_idx]
         offset = 0
-        for stmt_idx, num_ans in enumerate(batch_slice):
-            num_rows = num_ans * 2
-            stmt_labels = final_labels[offset:offset+num_rows]
-            for l_idx in range(model.cfg.n_layers):
-                q_acts = last_token_resid[l_idx][offset:offset+num_rows, :]
+        
+        num_rows = batch_slice * 2
+        stmt_labels = final_labels[offset:offset+num_rows]
+        for l_idx in range(model.cfg.n_layers):
+            q_acts = last_token_resid[l_idx][offset:offset+num_rows, :]
 
-                # save as dict containing both activations + labels in .pt file
-                data = {
-                    "activations": q_acts.cpu(),
-                    "labels": torch.tensor(stmt_labels)
-                }
-                save_path = os.path.join(
-                    activations_dir,
-                    f"layer_{l_idx}_stmt_{global_stmt_idx + stmt_idx}.pt"
+                    # save as dict containing both activations + labels in .pt file
+            data = {
+            "activations": q_acts.cpu(),
+            "labels": torch.tensor(stmt_labels)
+            }
+            save_path = os.path.join(
+            activations_dir,
+            f"layer_{l_idx}_stmt_{global_stmt_idx}.pt"
                 )
-                torch.save(data, save_path)
-            offset += num_rows
+            torch.save(data, save_path)
+        
 
     t.cuda.empty_cache()
     print(f"\nActivation extraction complete for this slice. Activations saved in '{activations_dir}'.")
