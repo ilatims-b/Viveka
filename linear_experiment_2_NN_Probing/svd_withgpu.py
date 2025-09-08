@@ -14,7 +14,6 @@ def perform_global_svd(activations_dir, svd_dim, layer_indices, device):
     # Directory for projection matrices
     svd_dir = os.path.join(os.path.dirname(activations_dir), 'svd_components')
     os.makedirs(svd_dir, exist_ok=True)
-
     # Directory for projected activations
     projected_dir = os.path.join(os.path.dirname(activations_dir), 'activations_svd',
                                  os.path.basename(activations_dir))
@@ -82,25 +81,17 @@ def perform_global_svd(activations_dir, svd_dim, layer_indices, device):
                 t.save({'activations': projected_activations.cpu(), 'labels': data['labels']}, save_path)
 
 if __name__ == '__main__':
-    # This block allows you to run this script standalone if you wish
     parser = argparse.ArgumentParser(description="Perform SVD on saved activations to find principal components.")
     parser.add_argument('--probe_output_dir', type=str, default='probes_data', help="Root directory where activation data is stored.")
     parser.add_argument('--model_repo_id', type=str, required=True, help="Hugging Face model ID, used to find the correct activation folder.")
     parser.add_argument('--svd_layers', nargs='+', type=int, required=True, help="List of layers to perform SVD on. Use -1 for all.")
     parser.add_argument('--svd_dim', type=int, default=576, help="Dimension to reduce activations to via SVD.")
     parser.add_argument('--device', type=str, default='cuda' if t.cuda.is_available() else 'cpu')
-    
     args = parser.parse_args()
 
-    activations_dir = os.path.join(args.probe_output_dir, 'activations', args.model_repo_id.replace('/', '_'))
-    
+    activations_dir = os.path.join(args.probe_output_dir, 'activations', args.model_repo_id.replace('/', '_'))    
     if -1 in args.svd_layers:
         args.svd_layers = [i for i in range(26)]
-            #layer_files = glob.glob(os.path.join(activations_dir, 'layer_*_stmt_*.pt'))
-            #max_layer = max([int(f.split('layer_')[1].split('_')[0]) for f in layer_files])
-            #layer_indices = list(range(max_layer + 1))
-        #except (ValueError, IndexError, FileNotFoundError):
-        #    raise SystemExit("Error: Could not determine number of layers from files. Please specify layers explicitly.")
     else:
         layer_indices = args.svd_layers
 

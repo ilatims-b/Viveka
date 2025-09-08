@@ -5,47 +5,10 @@ from tqdm import tqdm
 import torch as t
 from thefuzz import fuzz
 
-#############
 import torch
 import gc
-############
+
 from transformer_lens import HookedTransformer
-
-#This was for using huggingface model and hooks 
-#tokenizer, model, layer_modules = load_model(args.model_repo_id, args.device)
-
-
-def report_gpu_memory(detail=False):
-    """
-    Reports the detailed GPU memory usage, listing tensors by size.
-    
-    Args:
-        detail (bool): If True, prints a full memory summary from PyTorch.
-    """
-    print(f"CUDA Memory Allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
-    print(f"CUDA Memory Cached:    {torch.cuda.memory_reserved() / 1024**3:.2f} GB")
-    
-    # --- Detailed Tensor Report ---
-    tensors = []
-    for obj in gc.get_objects():
-        try:
-            if torch.is_tensor(obj) and obj.is_cuda:
-                tensors.append((obj.nelement() * obj.element_size(), obj.size(), obj.dtype, type(obj)))
-        except:
-            pass
-            
-    # Sort by size in descending order
-    tensors.sort(key=lambda x: x[0], reverse=True)
-    
-    print("\n--- Top 5 Largest Tensors on GPU ---")
-    for size_bytes, shape, dtype, _ in tensors[:5]:
-        print(f"- Size: {size_bytes / 1024**2:.2f} MB | Shape: {str(list(shape)):<30} | Dtype: {dtype}")
-
-    if detail:
-        print("\n--- PyTorch Memory Summary ---")
-        print(torch.cuda.memory_summary(device=None, abbreviated=False))
-
-#############
 
 class Hook:
     """Hook class compatible with both PyTorch forward hooks and TransformerLens HookPoints."""
@@ -57,7 +20,7 @@ class Hook:
         if len(args) == 2:
             value, hook = args
             self.out = value.detach().cpu()
-            return value  # TransformerLens hooks must return the (possibly modified) value
+            return value
 
         # PyTorch forward-hook signature: (module, module_inputs, module_outputs)
         elif len(args) == 3:
@@ -68,7 +31,7 @@ class Hook:
 
         else:
             raise ValueError("Hook called with unexpected signature. Expected (value, hook) or (module, inputs, outputs).")
-_FIRST_RUN_DONE = False
+
 
 def generate_and_label_answers(
     statements,
@@ -97,7 +60,7 @@ def generate_and_label_answers(
     else:
         generations_cache = {}
 
-    # Filter out already-generated statements
+    # Filters out already-generated statements
     batch_statements = []
     batch_correct_answers = []
     for stmt, correct_ans in zip(statements, correct_answers):
@@ -108,10 +71,8 @@ def generate_and_label_answers(
     if not batch_statements:
         return
 
-    # Create prompts for all statements in this batch
     prompts = create_prompts(batch_statements, model_name)
 
-    # Generate all answers in parallel
     print(f"Generating using temperature {temperature} and top_p = {top_p}")
     all_generated, _ = generate_model_answers(
         prompts, model, tokenizer, device, model_name,
@@ -122,13 +83,10 @@ def generate_and_label_answers(
         temperature=0.7
     )
 
-    # all_generated will be length = len(batch_statements) * num_generations
-    # We regroup them by statement
     for i, stmt in enumerate(batch_statements):
         stmt_generations = all_generated[i * num_generations:(i + 1) * num_generations]
         generated_texts = [g.strip() for g in stmt_generations]
 
-        # Parse correct answers list
         try:
             correct_answers_list = eval(batch_correct_answers[i])
             if not isinstance(correct_answers_list, list):
@@ -136,7 +94,6 @@ def generate_and_label_answers(
         except (SyntaxError, NameError):
             correct_answers_list = [str(batch_correct_answers[i])]
 
-        # Label generations
         ground_truth_labels = []
         for text in generated_texts:
             is_match = any(fuzz.partial_ratio(str(ans).lower(), text.lower()) > 90
@@ -159,21 +116,21 @@ def get_truth_probe_activations(
     statements,
     tokenizer,
     model,
+    model_name_arg,
     layers,
     layer_indices,
     device,
     batch_list,
+    batch_size_arg=32,
     output_dir="current_run",
     start_index=0,
     end_index=0
 ):
-    #global _FIRST_RUN_DONE
     """
     STAGE 2: Load generated answers from the cache for a slice of statements,
     and save the captured activations using the correct global index.
     """
-    #model_name = model.name_or_path.replace("/", "_") if hasattr(model, 'name_or_path') else 'unknown'
-    model_name = 'gemma-2-2b-it'
+    model_name = model_name_arg
     generations_dir = os.path.join(output_dir, "generations")
     activations_dir = os.path.join(output_dir, "activations", model_name)
     os.makedirs(activations_dir, exist_ok=True)
@@ -193,7 +150,7 @@ def get_truth_probe_activations(
         total=len(statements)
     )):
         global_stmt_idx = start_index + local_idx
-        
+
         if stmt not in generations_cache:
             print(f"Warning: Statement (Index {global_stmt_idx}) '{stmt[:50]}...' not found in cache. Skipping.")
             continue
@@ -212,7 +169,7 @@ def get_truth_probe_activations(
             appended_prompts.extend([prompt_true, prompt_false])
             final_labels.extend([ground_truth, 1 - ground_truth])
 
-        batch_size = 32  # how many answers of the same statement you wanna process at once 
+        batch_size = batch_size_arg # how many answers of the same statement you wanna process at once 
         all_last_token_resid = [[] for _ in range(model.cfg.n_layers)]  # list per layer
 
         for i in range(0, len(appended_prompts), batch_size):
@@ -233,7 +190,6 @@ def get_truth_probe_activations(
             del tokens, layer_last_token
             torch.cuda.empty_cache()
 
-# Combine all batches for each layer
         last_token_resid = [torch.cat(all_last_token_resid[l_idx], dim=0) for l_idx in range(model.cfg.n_layers)]
        
         batch_slice = batch_list[global_stmt_idx]
@@ -244,7 +200,6 @@ def get_truth_probe_activations(
         for l_idx in range(model.cfg.n_layers):
             q_acts = last_token_resid[l_idx][offset:offset+num_rows, :]
 
-                    # save as dict containing both activations + labels in .pt file
             data = {
             "activations": q_acts.cpu(),
             "labels": torch.tensor(stmt_labels)

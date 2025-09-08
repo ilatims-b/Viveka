@@ -12,10 +12,9 @@ import torch as t
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 from transformers import AutoTokenizer
-from hook import report_gpu_memory
 import pandas as pd
 
-# === SVD Projection Loader ========================================
+#SVD Projection Loader
 
 def load_and_project_activations(activations_dir, layer_idx, device):
     """
@@ -50,7 +49,7 @@ def load_and_project_activations(activations_dir, layer_idx, device):
         t.cat(labels_list, dim=0).float().unsqueeze(1)
     )
 
-# === Training Function ============================================
+#Training Functionality
 
 def load_preprojected_dataset(projected_dir, layer_idx):
     """
@@ -74,7 +73,7 @@ def load_preprojected_dataset(projected_dir, layer_idx):
     )
 
 
-'''def train_probing_network(dataset_dir, train_layers, device):
+def train_probing_network(dataset_dir, train_layers, device):
     """
     Trains a probing network for each specified layer on either:
     - precomputed SVD-projected activations from activations_svd, or
@@ -186,8 +185,8 @@ def load_preprojected_dataset(projected_dir, layer_idx):
 
         writer.close()
         t.save(model.state_dict(), os.path.join(probes_dir, f'probe_model_layer_{l_idx}.pt'))
-'''
-# === Main Execution Block =========================================
+
+#Main
 
 if __name__ == '__main__':
     df_unique = pd.read_json(r"merge/merged_generations/unique_generations_20K.json")
@@ -197,6 +196,7 @@ if __name__ == '__main__':
     avg = sum(len_list)/len(len_list)
     print(f"number of questions : {len(len_list)}\navg no. of unique ans per qn: {avg}")
     parser = argparse.ArgumentParser(description="Run a multi-stage pipeline to generate data, extract activations, run SVD, and train a truth probe.")
+    
     # --- Core Arguments ---
     parser.add_argument('--dataset_path', type=str, required=True, help="Path to the dataset CSV file.")
     parser.add_argument('--model_repo_id', type=str, required=True, default='google/gemma-2-2b-it', help="Hugging Face model repository ID.")
@@ -210,6 +210,8 @@ if __name__ == '__main__':
     parser.add_argument('--start_index', type=int, default=0, help="The starting row index of the dataset to process.")
     parser.add_argument('--end_index', type=int, default=None, help="The ending row index of the dataset to process(doesn't include this row). Processes to the end if not specified.")
     parser.add_argument('--gen_batch_size', type=int, default=1, help="Number of statements to process in parallel during generation.")
+    parser.add_argument('--batch_slice_arg', type=int, default=32, help="How many answers(*2) of the each statement you wanna do at once.")
+    
     # --- Generation Arguments ---
     parser.add_argument('--temperature', type=float, default=0.7, help="The temperature with which you want to generate completions, default=0.7")
     parser.add_argument('--top_p', type=float, default=0.9, help="Nucleus sampling threshold, default=0.9")
@@ -228,27 +230,21 @@ if __name__ == '__main__':
     args = parser.parse_args()
     hparams.model_name = args.model_repo_id
     print(args.max_new_tokens, "main_edited.py, argsparser")
-    # --- Model Loading ---
+
     print(f"Loading model: {args.model_repo_id}...")
-    #tokenizer, model, layer_modules = load_model(args.model_repo_id, args.device)
-    #num_layers = len(layer_modules)
-    #print("Memory after loading model : ")
-    #report_gpu_memory()
-    # --- Stage Routing ---
+ 
     output_dir = args.probe_output_dir
     print(output_dir, "Output dir")
     if args.stage in ['generate', 'activate', 'all']:
-        if -1 in args.layers:
-            args.layers = list(range(0,26))
         tokenizer, model, layer_modules = load_model(args.model_repo_id, args.device)
+        if -1 in args.layers:
+            args.layers = list(range(0,model.cfg.n_layers))
         num_layers = len(layer_modules)
-        print("Memory after loading model : ")
-        report_gpu_memory()
         print(f"Loading dataset from: {args.dataset_path}")
         df, all_statements, all_correct_answers = load_statements(args.dataset_path)
 
         start = args.start_index
-        end = args.end_index if args.end_index is not None else len(all_statements) #process everything if not specified
+        end = args.end_index if args.end_index is not None else len(all_statements) #processes everything if not specified
         statements_to_process = all_statements[start:end]
         answers_to_process = all_correct_answers[start:end]
 
@@ -283,6 +279,8 @@ if __name__ == '__main__':
                     statements=batch_statements,
                     tokenizer=tokenizer,
                     model=model,
+                    model_name_arg=args.model_repo_id,
+                    batch_size_arg=batch_slice_arg,
                     layers=layer_modules,
                     layer_indices=args.layers,
                     device=args.device,
