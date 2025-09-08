@@ -288,7 +288,7 @@ if __name__ == '__main__':
                     output_dir=args.probe_output_dir,
                     start_index=start_idx,
                     end_index=end_idx,
-                    batch_list=len_list[start_idx:end_idx]
+                    batch_list=len_list
                 )
 
     if args.stage in ['svd', 'all']:
