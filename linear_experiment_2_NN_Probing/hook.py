@@ -187,15 +187,6 @@ def get_truth_probe_activations(
     if -1 in layer_indices:
         layer_indices = list(range(len(layers)))
 
-    #residual_hooks = {l: Hook() for l in layer_indices}
-    #handles = [layers[l].register_forward_hook(residual_hooks[l]) for l in layer_indices]
-
-    # model = HookedTransformer.from_pretrained(
-    #     "google/gemma-2-2b-it",
-    #     device="cuda",
-    #     dtype=torch.float16
-    # )
-
     for local_idx, stmt in enumerate(tqdm(
         statements,
         desc="Stage : Extracting Activations",
@@ -221,7 +212,7 @@ def get_truth_probe_activations(
             appended_prompts.extend([prompt_true, prompt_false])
             final_labels.extend([ground_truth, 1 - ground_truth])
 
-        batch_size = 8  # or small number like 2–4
+        batch_size = 16  # or small number like 2–4
         all_last_token_resid = [[] for _ in range(model.cfg.n_layers)]  # list per layer
 
         for i in range(0, len(appended_prompts), batch_size):
