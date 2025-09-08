@@ -74,7 +74,7 @@ def load_preprojected_dataset(projected_dir, layer_idx):
     )
 
 
-def train_probing_network(dataset_dir, train_layers, device):
+'''def train_probing_network(dataset_dir, train_layers, device):
     """
     Trains a probing network for each specified layer on either:
     - precomputed SVD-projected activations from activations_svd, or
@@ -186,7 +186,7 @@ def train_probing_network(dataset_dir, train_layers, device):
 
         writer.close()
         t.save(model.state_dict(), os.path.join(probes_dir, f'probe_model_layer_{l_idx}.pt'))
-
+'''
 # === Main Execution Block =========================================
 
 if __name__ == '__main__':
@@ -271,7 +271,6 @@ if __name__ == '__main__':
                     temperature=args.temperature,
                     top_p=args.top_p
                 )
-
 
         if args.stage in ['activate', 'all']:
             batch_size = args.gen_batch_size

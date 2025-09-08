@@ -187,15 +187,6 @@ def get_truth_probe_activations(
     if -1 in layer_indices:
         layer_indices = list(range(len(layers)))
 
-    #residual_hooks = {l: Hook() for l in layer_indices}
-    #handles = [layers[l].register_forward_hook(residual_hooks[l]) for l in layer_indices]
-
-    # model = HookedTransformer.from_pretrained(
-    #     "google/gemma-2-2b-it",
-    #     device="cuda",
-    #     dtype=torch.float16
-    # )
-
     for local_idx, stmt in enumerate(tqdm(
         statements,
         desc="Stage : Extracting Activations",
@@ -231,13 +222,15 @@ def get_truth_probe_activations(
             input_ids = tokens["input_ids"].to(device)
 
             with torch.no_grad():
-                logits, cache = model.run_with_cache(input_ids)
-
+                _, cache = model.run_with_cache(input_ids)
+                torch.cuda.empty_cache()
             # Extract last-token activations for each layer and move to CPU immediately
             for l_idx in range(model.cfg.n_layers):
                 layer_last_token = cache[f"blocks.{l_idx}.hook_resid_post"][:, -1, :].cpu()
+                torch.cuda.empty_cache()
                 all_last_token_resid[l_idx].append(layer_last_token)
-
+            del cache
+            del tokens, layer_last_token
             torch.cuda.empty_cache()
 
 # Combine all batches for each layer
