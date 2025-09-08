@@ -212,7 +212,7 @@ def get_truth_probe_activations(
             appended_prompts.extend([prompt_true, prompt_false])
             final_labels.extend([ground_truth, 1 - ground_truth])
 
-        batch_size = 16  # or small number like 2–4
+        batch_size = 4  # how many answers of the same statement you wanna process at once 
         all_last_token_resid = [[] for _ in range(model.cfg.n_layers)]  # list per layer
 
         for i in range(0, len(appended_prompts), batch_size):

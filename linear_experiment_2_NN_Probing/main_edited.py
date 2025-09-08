@@ -274,7 +274,8 @@ if __name__ == '__main__':
 
         if args.stage in ['activate', 'all']:
             batch_size = args.gen_batch_size
-            for start_idx in range(0, len(statements_to_process), batch_size):
+            for start_idx in tqdm(range(0, len(statements_to_process), batch_size), 
+                total=len(statements_to_process)//batch_size + 1):
                 end_idx = min(start_idx + batch_size, len(statements_to_process))
                 batch_statements = statements_to_process[start_idx:end_idx]
 
