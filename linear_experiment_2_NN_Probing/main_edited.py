@@ -13,6 +13,8 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 from transformers import AutoTokenizer
 import pandas as pd
+import random
+import wandb
 
 #SVD Projection Loader
 
@@ -79,6 +81,18 @@ def train_probing_network(dataset_dir, train_layers, device):
     - precomputed SVD-projected activations from activations_svd, or
     - raw activations projected on-the-fly using saved projection matrices.
     """
+
+    run = wandb.init(
+    entity='jerrycloud3316-ai-club-iit-madras',
+    project='training network probes for triviaqa on gemma-2-2b-it',
+    config={
+        "learning_rate":0.003,
+        "architecture":"Transformer",
+        "dataset": "TriviaQA_1-20k",
+        "epochs": 10,
+        },
+    )
+
     model_name_safe = hparams.model_name.replace('/', '_')
     activations_dir = os.path.join(dataset_dir, 'activations', model_name_safe)
     projected_dir = os.path.join(dataset_dir, 'activations_svd', model_name_safe)
@@ -146,6 +160,14 @@ def train_probing_network(dataset_dir, train_layers, device):
             print(f"\nEpoch {epoch+1} completed in {elapsed:.2f}s | Estimated time remaining: {est_remaining:.2f}s")
             print(f"Train Accuracy: {train_acc:.4f} | F1: {train_f1:.4f}")
 
+            run.log(
+                {
+                    "loss/train":avg_train_loss,
+                    "acc/train":train_acc,
+                    "f1/train":train_f1,
+                    "learning-rate": scheduler.get_last_lr()[0]
+                }
+            )
             writer.add_scalar("Loss/train", avg_train_loss, epoch)
             writer.add_scalar("Accuracy/train", train_acc, epoch)
             writer.add_scalar("F1/train", train_f1, epoch)
@@ -181,9 +203,17 @@ def train_probing_network(dataset_dir, train_layers, device):
             writer.add_scalar("Loss/val", avg_val_loss, epoch)
             writer.add_scalar("Accuracy/val", val_acc, epoch)
             writer.add_scalar("F1/val", val_f1, epoch)
+            run.log(
+                {
+                    "Loss/val": avg_val_loss,
+                    "accuracy_val": val_acc,
+                    "f1_val": val_f1
+                }
+            )
             log_confusion_matrix(writer, val_labels, val_preds, epoch)
 
         writer.close()
+        run.finish()
         t.save(model.state_dict(), os.path.join(probes_dir, f'probe_model_layer_{l_idx}.pt'))
 
 #Main
@@ -295,6 +325,8 @@ if __name__ == '__main__':
             parser.error("--svd_layers is required for 'svd' stage.")
         activations_dir = os.path.join(args.probe_output_dir, 'activations', args.model_repo_id.replace('/', '_'))
         perform_global_svd(activations_dir, args.svd_dim, args.svd_layers, args.device)
+    
+
 
     if args.stage in ['train', 'all']:
         if not args.train_layers:
