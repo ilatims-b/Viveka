@@ -199,17 +199,20 @@ def train_probing_network(dataset_dir, train_layers, device):
             print(f"Layer {l_idx} | Epoch {epoch+1} | Val Loss: {val_loss/len(val_loader):.4f} | Val Acc: {correct/total:.4f}")
             print(f"Val Accuracy: {val_acc:.4f} | F1: {val_f1:.4f}")
             print("Classification Report:\n", classification_report(val_labels, val_preds, digits=4))
+            
 
             writer.add_scalar("Loss/val", avg_val_loss, epoch)
             writer.add_scalar("Accuracy/val", val_acc, epoch)
             writer.add_scalar("F1/val", val_f1, epoch)
-            run.log(
-                {
-                    "Loss/val": avg_val_loss,
-                    "accuracy_val": val_acc,
-                    "f1_val": val_f1
-                }
-            )
+            if epoch%10==0:
+
+                run.log(
+                    {
+                        "Loss/val": avg_val_loss,
+                        "accuracy_val": val_acc,
+                        "f1_val": val_f1
+                    }
+                )
             log_confusion_matrix(writer, val_labels, val_preds, epoch)
 
         writer.close()
