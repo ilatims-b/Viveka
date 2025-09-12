@@ -40,7 +40,7 @@ def perform_global_svd(activations_dir, svd_dim, layer_indices, device):
             orig_dtype = full_layer_activations.dtype
 
             # Convert to float32 for SVD if needed
-            if orig_dtype in  (t.bfloat16,t.bfloat16):
+            if orig_dtype in  (t.float16,t.bfloat16):
                 print(f"Converting layer {l_idx} activations from bfloat16 to float32 for SVD.")
                 full_layer_activations = full_layer_activations.to(t.float32)
 
