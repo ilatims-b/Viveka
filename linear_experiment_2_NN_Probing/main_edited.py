@@ -145,11 +145,23 @@ def train_probing_network(dataset_dir, train_layers, device):
                 pbar.set_postfix({'loss': loss.item(), 
                                   "lr": f"{scheduler.get_last_lr()[0]:.6f}"
                                   })
-                epoch_loss += loss.item()
+                current_loss=loss.item()
+                epoch_loss += current_loss
                 preds = (outputs > 0.5).float()
                 train_preds.extend(preds.cpu().numpy())
                 train_labels.extend(y_batch.cpu().numpy())
                 step += 1
+                batch_acc = accuracy_score(preds.cpu().numpy(), train_preds.cpu().numpy())
+                batch_f1 = f1_score(preds.cpu().numpy(), train_preds.cpu().numpy())
+                run.log(
+                {
+                    "loss/train":current_loss,
+                    "acc/train":batch_acc,
+                    "f1/train":batch_f1,
+                    "learning-rate": scheduler.get_last_lr()[0]
+                }
+            )
+                
             
             train_acc = accuracy_score(train_labels, train_preds)
             train_f1 = f1_score(train_labels, train_preds)
@@ -184,7 +196,8 @@ def train_probing_network(dataset_dir, train_layers, device):
                 for X_batch, y_batch in val_pbar:
                     X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                     outputs = model(X_batch)
-                    val_loss += criterion(outputs, y_batch).item()
+                    current_loss=criterion(outputs, y_batch).item()
+                    val_loss += current_loss
                     preds = (outputs > 0.5).float()
                     total += y_batch.size(0)
                     correct += (preds == y_batch).sum().item()
@@ -193,6 +206,16 @@ def train_probing_network(dataset_dir, train_layers, device):
                     val_pbar.set_postfix({
                     "val_loss": f"{loss.item():.4f}"
                                         })
+                    batch_acc = accuracy_score(preds.cpu().numpy(), y_batch.cpu().numpy())
+                    batch_f1 = f1_score(preds.cpu().numpy(), y_batch.cpu().numpy()) 
+                    run.log(
+                    {
+                        "loss/train":current_loss,
+                        "acc/train":batch_acc,
+                        "f1/train":batch_f1,
+                        
+                    } 
+                    )  
             val_acc = accuracy_score(val_labels, val_preds)
             val_f1 = f1_score(val_labels, val_preds)
             avg_val_loss = val_loss / len(val_loader)
@@ -204,15 +227,14 @@ def train_probing_network(dataset_dir, train_layers, device):
             writer.add_scalar("Loss/val", avg_val_loss, epoch)
             writer.add_scalar("Accuracy/val", val_acc, epoch)
             writer.add_scalar("F1/val", val_f1, epoch)
-            if epoch%10==0:
-
-                run.log(
-                    {
-                        "Loss/val": avg_val_loss,
-                        "accuracy_val": val_acc,
-                        "f1_val": val_f1
-                    }
-                )
+            
+            run.log(
+                {
+                    "Loss/val": avg_val_loss,
+                    "accuracy_val": val_acc,
+                    "f1_val": val_f1
+                }
+            )
             log_confusion_matrix(writer, val_labels, val_preds, epoch)
 
         writer.close()
