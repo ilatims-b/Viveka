@@ -222,12 +222,12 @@ def train_probing_network(dataset_dir, train_layers, device):
 #Main
 
 if __name__ == '__main__':
-    df_unique = pd.read_json(r"merge/merged_generations/unique_generations_20K.json")
-    df_unique
-    row = df_unique.loc["generated_answers"]
-    len_list = row.apply(len).tolist()
-    avg = sum(len_list)/len(len_list)
-    print(f"number of questions : {len(len_list)}\navg no. of unique ans per qn: {avg}")
+    # df_unique = pd.read_json(r"merge/merged_generations/unique_generations_20K.json")
+    # df_unique
+    # row = df_unique.loc["generated_answers"]
+    # len_list = row.apply(len).tolist()
+    # avg = sum(len_list)/len(len_list)
+    # print(f"number of questions : {len(len_list)}\navg no. of unique ans per qn: {avg}")
     parser = argparse.ArgumentParser(description="Run a multi-stage pipeline to generate data, extract activations, run SVD, and train a truth probe.")
     
     # --- Core Arguments ---
