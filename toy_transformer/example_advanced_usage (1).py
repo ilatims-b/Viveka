@@ -1,8 +1,8 @@
 
 # Example usage of advanced toy transformer with comprehensive metrics tracking
 
-from toy_model_advanced import *
-from metrics_tracker_advanced import AdvancedMetricsTracker
+from toy_model import *
+from metrics import AdvancedMetricsTracker
 import wandb
 import torch
 import numpy as np
