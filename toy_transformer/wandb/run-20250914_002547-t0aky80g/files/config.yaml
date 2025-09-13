@@ -1,0 +1,93 @@
+_wandb:
+    value:
+        cli_version: 0.21.3
+        e:
+            6a7trtnbs9ckavlm1dbjuoxpj9165xen:
+                apple:
+                    ecpuCores: 4
+                    gpuCores: 10
+                    memoryGb: 8
+                    name: Apple M3
+                    pcpuCores: 4
+                    ramTotalBytes: "8589934592"
+                    swapTotalBytes: "1073741824"
+                codePath: toy_transformer/model.ipynb
+                codePathLocal: model.ipynb
+                cpu_count: 8
+                cpu_count_logical: 8
+                disk:
+                    /:
+                        total: "245107195904"
+                        used: "239838314496"
+                email: ce24b119@smail.iitm.ac.in
+                executable: /opt/anaconda3/envs/toytrans/bin/python
+                git:
+                    commit: cdd0e539ef19f93f2140a667c07378082fe62342
+                    remote: https://github.com/ilatims-b/Viveka.git
+                host: Smitalis-MacBook-Air.local
+                memory:
+                    total: "8589934592"
+                os: macOS-15.2-arm64-arm-64bit
+                program: /Users/sbhandari/Documents/GitHub/Vivekafork/toy_transformer/model.ipynb
+                python: CPython 3.10.18
+                root: /Users/sbhandari/Documents/GitHub/Vivekafork/toy_transformer
+                startedAt: "2025-09-13T18:55:47.192432Z"
+                writerId: 6a7trtnbs9ckavlm1dbjuoxpj9165xen
+        m: []
+        python_version: 3.10.18
+        t:
+            "1":
+                - 1
+                - 11
+                - 49
+                - 51
+                - 71
+            "2":
+                - 1
+                - 11
+                - 49
+                - 51
+                - 71
+            "3":
+                - 2
+                - 16
+                - 61
+            "4": 3.10.18
+            "5": 0.21.3
+            "6": 4.56.1
+            "8":
+                - 1
+            "12": 0.21.3
+            "13": darwin-arm64
+batch_size:
+    value: 64
+device:
+    value: cpu
+lr:
+    value: 0.1
+max_grad_norm:
+    value: null
+max_steps:
+    value: null
+momentum:
+    value: 0
+num_epochs:
+    value: 300
+optimizer_name:
+    value: SGD
+print_every:
+    value: 10
+save_dir:
+    value: proc1/seq_len_30/
+save_every:
+    value: 20
+seed:
+    value: 42
+wandb:
+    value: true
+wandb_project_name:
+    value: ICL
+warmup_steps:
+    value: 0
+weight_decay:
+    value: null

@@ -1,0 +1,185 @@
+Moving model to device:  cpu
+📊 Metrics tracking enabled: logging every 50 steps
+  0%|          | 1/300 [00:01<06:59,  1.40s/it]
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+Epoch 1 Validation Loss 0.49254849553108215
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+📊 Metrics logged at step 200
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+Epoch 2 Validation Loss 0.47930359840393066
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+Epoch 3 Validation Loss 0.472310334444046
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+📊 Metrics logged at step 400
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+Epoch 4 Validation Loss 0.4685837924480438
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+📊 Metrics logged at step 600
+Epoch 5 Validation Loss 0.4670877158641815
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+Epoch 6 Validation Loss 0.4660676121711731
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+📊 Metrics logged at step 800
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for val: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 1-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 2-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Error computing 3-gram metrics for complete: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1
+Cache key blocks.0.attn.pattern not found. Available keys: ['hook_embed', 'hook_pos_embed', 'blocks.0.hook_resid_pre', 'blocks.0.attn.hook_q', 'blocks.0.attn.hook_k']
+Epoch 7 Validation Loss 0.46559739112854004
+Error computing 1-gram metrics for train: The size of tensor a (32) must match the size of tensor b (30) at non-singleton dimension 1

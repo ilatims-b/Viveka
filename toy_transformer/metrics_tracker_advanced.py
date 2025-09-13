@@ -1,0 +1,520 @@
+
+import numpy as np
+import torch
+from typing import Dict, List, Tuple, Optional
+import wandb
+from itertools import product
+
+def get_ngram_stats(x: torch.Tensor, n: int) -> Tuple[Dict[str, float], Dict[str, int], int]:
+    """
+    Compute n-gram frequencies from sequence data.
+
+    Args:
+        x: Tensor of shape (batch_size, sequence_length) containing integer sequences
+        n: N-gram size (2 for bigram, 3 for trigram, etc.)
+
+    Returns:
+        Tuple of (frequencies_dict, counts_dict, total_ngrams)
+    """
+    if n < 1:
+        raise ValueError("N-gram size must be at least 1")
+
+    # Generate all possible n-grams for the vocabulary
+    vocab_size = x.max().item() + 1
+    ngram_counts = {}
+
+    # Initialize all possible n-grams to 0
+    for pattern in product(range(vocab_size), repeat=n):
+        pattern_str = ''.join(map(str, pattern))
+        ngram_counts[pattern_str] = 0
+
+    total_ngrams = 0
+
+    # Count n-grams in the data
+    for i in range(x.shape[0]):  # for each sequence
+        for j in range(x.shape[1] - n + 1):  # for each position where n-gram fits
+            ngram = ''.join([str(x[i, j+k].item()) for k in range(n)])
+            if ngram in ngram_counts:
+                ngram_counts[ngram] += 1
+                total_ngrams += 1
+
+    # Convert to frequencies
+    ngram_freqs = {}
+    for pattern, count in ngram_counts.items():
+        freq = count / total_ngrams if total_ngrams > 0 else 0
+        ngram_freqs[pattern] = freq
+
+    return ngram_freqs, ngram_counts, total_ngrams
+
+
+def ngram_kl(model, n: int, T_matrices: Optional[List[np.ndarray]] = None) -> float:
+    """
+    Compute KL divergence between true n-gram-based Markov process and model predictions.
+    """
+    # Default transition matrices if not provided
+    if T_matrices is None:
+        T0 = np.array([
+            [0, 1, 0],
+            [0, 0, 1],
+            [0, 0, 0.5]
+        ])
+        T1 = np.array([
+            [0, 0, 0],
+            [0, 0, 0],
+            [0.5, 0, 0]
+        ])
+        T_matrices = [T0, T1]
+
+    # Import MarkovData here to avoid circular imports
+    from toy_model import MarkovData
+
+    # Generate test data
+    test_data = MarkovData(50, 32, 3, 2, T_matrices, seed=42)
+    x = torch.stack(test_data.data)  # shape: (50, 32)
+
+    batch_size, seq_len = x.shape
+    dist1 = torch.zeros(batch_size, seq_len, 2)  # shape: (50, 32, 2)
+
+    if n == 1:  
+        dist1[..., 0] = 0.5  # P(0)
+        dist1[..., 1] = 0.5  # P(1)
+        start_pos = 0
+
+    elif n == 2: 
+        dist1[..., 0] = torch.where(x == 1, 1, 0.5)  # P(0)
+        dist1[..., 1] = torch.where(x == 1, 0, 0.5)   # P(1)
+        start_pos = 0
+
+    elif n==3:  
+        for i in range(batch_size):
+            for j in range(n-1, seq_len):
+                # Get previous (n-1) tokens as context
+                context = ''.join([str(x[i, j-k].item()) for k in range(n-1, 0, -1)])
+
+                if context == "00":
+                    dist1[i, j, 0] = 0.5  # P(0|00)
+                    dist1[i, j, 1] = 0.5  # P(1|00)
+                elif context == "01":
+                    dist1[i, j, 0] = 1.0  # P(0|01)
+                    dist1[i, j, 1] = 0.0  # P(1|01)
+                elif context == "10":
+                    dist1[i, j, 0] = 1.0  # P(0|10)
+                    dist1[i, j, 1] = 0.0  # P(1|10)
+                elif context == "11":  # This should never occur in the true process
+                    dist1[i, j, 0] = 0.5  # Fallback
+                    dist1[i, j, 1] = 0.5
+    else:
+        # For higher-order n-grams, use uniform distribution as fallback
+        dist1[i, j, 0] = 0.5
+        dist1[i, j, 1] = 0.5
+
+    start_pos = n - 1
+
+    # Get predicted probabilities from model
+    dist2 = model(x).softmax(dim=-1)  # shape: (50, 32, 2)
+
+    # Only evaluate positions where we have proper context
+    dist1_eval = dist1[:, start_pos:]
+    dist2_eval = dist2[:, start_pos:]
+
+    # Avoid log(0) by clamping very small values
+    eps = 1e-8
+    dist1_clamped = dist1_eval.clamp(min=eps)
+    dist2_clamped = dist2_eval.clamp(min=eps)
+
+    # Compute KL divergence manually: sum_i P_i * log(P_i/Q_i)
+    def kl_div(dist1_clamped, dist2_clamped):
+        kl_div = dist1_clamped * (dist1_clamped.log() - dist2_clamped.log())
+        kl_sum = kl_div.sum(dim=-1)  # sum over distribution axis
+        return kl_sum.mean().item()  # scalar
+
+    return kl_div(dist1_clamped, dist2_clamped)
+
+
+def compute_composition_scores(model, layer1_idx: int = 0, layer2_idx: int = 1) -> Dict[str, float]:
+    """
+    Compute Q, K, V composition scores between attention heads in different layers.
+    Based on Elhage et al. [9]: ||MW^h_OV||_F / (||M||_F ||W^h_OV||_F)
+
+    Args:
+        model: HookedTransformer model
+        layer1_idx: First layer index  
+        layer2_idx: Second layer index (should be > layer1_idx)
+
+    Returns:
+        Dict with composition scores for each head pair
+    """
+    composition_scores = {}
+
+    if layer2_idx >= len(model.blocks) or layer1_idx >= layer2_idx:
+        return composition_scores
+
+    layer1_attn = model.blocks[layer1_idx].attn
+    layer2_attn = model.blocks[layer2_idx].attn
+
+    n_heads = layer1_attn.cfg.n_heads
+
+    for h1 in range(n_heads):
+        for h2 in range(n_heads):
+            try:
+                # Get weight matrices
+                W1_V = layer1_attn.W_V[h1]  # [d_model, d_head]
+                W1_O = layer1_attn.W_O[h1]  # [d_head, d_model] 
+                W1_OV = W1_V @ W1_O         # [d_model, d_model]
+
+                W2_Q = layer2_attn.W_Q[h2]  # [d_model, d_head]
+                W2_K = layer2_attn.W_K[h2]  # [d_model, d_head]
+                W2_V = layer2_attn.W_V[h2]  # [d_model, d_head]
+
+                # Compute composition matrices
+                M_QK = W2_Q.T @ W1_OV       # Q-composition
+                M_KK = W2_K.T @ W1_OV       # K-composition  
+                M_VK = W2_V.T @ W1_OV       # V-composition
+
+                # Compute Frobenius norms
+                def frobenius_norm(x):
+                    return torch.norm(x, p='fro').item()
+
+                W1_OV_norm = frobenius_norm(W1_OV)
+
+                # Q-composition score
+                if W1_OV_norm > 1e-8:
+                    q_score = frobenius_norm(M_QK) / (frobenius_norm(W2_Q.T) * W1_OV_norm)
+                    composition_scores[f'q_comp_{layer1_idx}_{h1}_to_{layer2_idx}_{h2}'] = q_score
+                    k_score = frobenius_norm(M_KK) / (frobenius_norm(W2_K.T) * W1_OV_norm)
+                    composition_scores[f'k_comp_{layer1_idx}_{h1}_to_{layer2_idx}_{h2}'] = k_score
+                    v_score = frobenius_norm(M_VK) / (frobenius_norm(W2_V.T) * W1_OV_norm)
+                    composition_scores[f'v_comp_{layer1_idx}_{h1}_to_{layer2_idx}_{h2}'] = v_score
+
+            except Exception as e:
+                print(f"Error computing composition for heads {h1}-{h2}: {e}")
+                continue
+
+    return composition_scores
+
+
+def compute_previous_token_matching_score(model, num_samples: int = 1000, max_seq_len: int = 64) -> Dict[str, float]:
+    """
+    Compute previous-token matching scores for all attention heads.
+    Measures how much each attention head attends to the immediately preceding token.
+    """
+    device = next(model.parameters()).device
+    vocab_size = model.cfg.d_vocab
+    scores = {}
+    max_seq_len = min(max_seq_len, model.cfg.n_ctx)
+    # Generate synthetic random sequences
+    sequences = torch.randint(0, vocab_size, (num_samples, max_seq_len), device=device)
+
+    with torch.no_grad():
+        # Run model and get attention patterns
+        _, cache = model.run_with_cache(sequences)
+
+        for layer_idx in range(model.cfg.n_layers):
+            # Get attention patterns: [batch, head, seq_len, seq_len]
+            cache_key = f'blocks.{layer_idx}.attn.pattern'
+            if cache_key not in cache:
+                print(f"Cache key {cache_key} not found. Available keys: {list(cache.keys())[:5]}")
+                continue
+            attn_patterns = cache[cache_key]    
+            for head_idx in range(model.cfg.n_heads):
+                # Get attention from each token to the previous token
+                # attn_patterns[:, head_idx, i, i-1] gives attention from token i to token i-1
+                prev_token_scores = []
+
+                for seq_pos in range(1, max_seq_len):  # Start from position 1
+                    # Attention from position seq_pos to position seq_pos-1
+                    attention_to_prev = attn_patterns[:, head_idx, seq_pos, seq_pos-1]
+                    prev_token_scores.extend(attention_to_prev.cpu().numpy())
+
+                # Average score across all positions and sequences
+                avg_score = np.mean(prev_token_scores) if prev_token_scores else 0.0
+                scores[f'prev_token_l{layer_idx}_h{head_idx}'] = avg_score
+
+    return scores
+
+
+def compute_in_context_learning_score(model, num_samples: int = 100, k1: int = 50, k2: int = 500) -> float:
+    """
+    Compute in-context learning score: ICL_{k1,k2}(w) = ℓ_{n,k1}(w) - ℓ_{n,k2}(w)
+    Measures relative performance later in sequence vs earlier.
+    """
+    device = next(model.parameters()).device
+    vocab_size = model.cfg.d_vocab
+    max_seq_len = model.cfg.n_ctx
+    k1 = min(k1, max_seq_len - 2)
+    k2 = min(k2, max_seq_len - 2)
+    if k1 >= k2:
+        print(f"Warning: k1 ({k1}) >= k2 ({k2}), swapping values")
+        k1, k2 = k2, k1
+    seq_len = k2 + 1
+
+    sequences = torch.randint(0, vocab_size, (num_samples, seq_len), device=device)
+
+    with torch.no_grad():
+        logits = model(sequences)
+
+        # Compute losses at positions k1 and k2
+        loss_fn = torch.nn.CrossEntropyLoss(reduction='none')
+
+        # Loss at position k1 (predicting token at k1+1)
+        if k1 < seq_len - 1:
+            logits_k1 = logits[:, k1]  # [batch, vocab]
+            targets_k1 = sequences[:, k1 + 1]  # [batch]
+            losses_k1 = loss_fn(logits_k1, targets_k1)  # [batch]
+            avg_loss_k1 = losses_k1.mean().item()
+        else:
+            avg_loss_k1 = float('inf')
+
+        # Loss at position k2 (predicting token at k2+1) 
+        if k2 < seq_len - 1:
+            logits_k2 = logits[:, k2]  # [batch, vocab]
+            targets_k2 = sequences[:, k2 + 1]  # [batch]
+            losses_k2 = loss_fn(logits_k2, targets_k2)  # [batch]
+            avg_loss_k2 = losses_k2.mean().item()
+        else:
+            avg_loss_k2 = float('inf')
+
+        # ICL score: loss at early position - loss at later position
+        # More negative = better in-context learning
+        icl_score = avg_loss_k1 - avg_loss_k2
+
+    return icl_score
+
+
+def compute_prefix_matching_score(model, num_samples: int = 1000, seq_len: int = 128) -> Dict[str, float]:
+    """
+    Compute prefix matching scores for all attention heads.
+    Measures how much attention heads attend back to first instance of token 
+    when encountering second instance.
+    """
+    device = next(model.parameters()).device
+    vocab_size = model.cfg.d_vocab
+    scores = {}
+    seq_len = min(seq_len, model.cfg.n_ctx)
+    # Generate sequences with repeated tokens
+    sequences = []
+    for _ in range(num_samples):
+        if vocab_size < 3:  # Need at least 3 tokens (0, 1, 2)
+            print(f"Vocab size too small ({vocab_size}) for prefix matching")
+            return {}
+
+        seq = torch.randint(1, vocab_size, (seq_len,), device=device)
+
+            # Insert a repeated token: place token A in first half, then again in second half
+        if seq_len < 4:  # Need minimum length for meaningful prefix matching
+            continue
+
+        token_A = torch.randint(1, vocab_size, (1,), device=device).item()
+        first_half_end = max(2, seq_len // 2)
+        second_half_start = max(first_half_end + 1, seq_len // 2 + 1)
+
+        if first_half_end >= second_half_start or second_half_start >= seq_len:
+            continue  # Skip invalid sequences
+
+        first_pos = torch.randint(1, first_half_end, (1,)).item()
+        second_pos = torch.randint(second_half_start, seq_len, (1,)).item()
+
+        seq[first_pos] = token_A
+        seq[second_pos] = token_A
+        sequences.append(seq)
+    if not sequences:
+        print("No valid sequences generated for prefix matching")
+        return {}
+
+    sequences = torch.stack(sequences)  # [num_samples, seq_len]
+
+    with torch.no_grad():
+        _, cache = model.run_with_cache(sequences)
+
+        for layer_idx in range(model.cfg.n_layers):
+            cache_key = f'blocks.{layer_idx}.attn.pattern'
+            if cache_key not in cache:
+                continue
+            attn_patterns = cache[cache_key]  # [batch, head, seq_len, seq_len]
+            for head_idx in range(model.cfg.n_heads):
+                prefix_scores = []
+
+                for batch_idx in range(num_samples):
+                    # Find positions of repeated tokens
+                    seq = sequences[batch_idx]
+
+                    for second_pos in range(seq_len // 2 + 1, seq_len):
+                        token_at_second = seq[second_pos].item()
+
+                        # Find first occurrence of same token
+                        first_positions = []
+                        for first_pos in range(second_pos):
+                            if seq[first_pos].item() == token_at_second:
+                                first_positions.append(first_pos)
+
+                        if first_positions:
+                            # Get attention from second_pos to first occurrence
+                            first_pos = first_positions[0]  # Take earliest occurrence
+                            attention_score = attn_patterns[batch_idx, head_idx, second_pos, first_pos].item()
+                            prefix_scores.append(attention_score)
+
+                avg_score = np.mean(prefix_scores) if prefix_scores else 0.0
+                scores[f'prefix_match_l{layer_idx}_h{head_idx}'] = avg_score
+
+    return scores
+
+
+class AdvancedMetricsTracker:
+    """
+    Extended metrics tracker including advanced transformer evaluation metrics.
+    """
+
+    def __init__(
+        self, 
+        ngram_orders: List[int] = [1, 2, 3], 
+        track_sets: List[str] = ["train", "val", "complete"],
+        track_composition: bool = True,
+        track_previous_token: bool = True, 
+        track_in_context: bool = True,
+        track_prefix_matching: bool = True
+    ):
+        self.ngram_orders = ngram_orders
+        self.track_sets = track_sets
+        self.track_composition = track_composition
+        self.track_previous_token = track_previous_token
+        self.track_in_context = track_in_context
+        self.track_prefix_matching = track_prefix_matching
+        self.metrics = {}
+
+    def compute_all_metrics(self, model, datasets: Dict[str, torch.Tensor], step: int):
+        """
+        Compute all enabled metrics for the model.
+        """
+        metrics_to_log = {}
+
+        # 1. N-gram metrics
+        for set_name in self.track_sets:
+            if set_name not in datasets:
+                continue
+
+            data = datasets[set_name]
+
+            for n in self.ngram_orders:
+                try:
+                    # Compute n-gram statistics
+                    #freqs, counts, total = get_ngram_stats(data, n)
+
+                    # Compute KL divergence
+                    kl_score = ngram_kl(model, n)
+
+                    # Store metrics
+                    metrics_to_log[f"{n}gram_kl_{set_name}"] = kl_score
+                    #metrics_to_log[f"{n}gram_total_{set_name}"] = total
+
+                    # Store top n-gram frequencies
+                    #sorted_freqs = sorted(freqs.items(), key=lambda x: x[1], reverse=True)
+                    #for i, (pattern, freq) in enumerate(sorted_freqs[:3]):  # Top 3
+                     #   metrics_to_log[f"{n}gram_freq_{pattern}_{set_name}"] = freq
+
+                except Exception as e:
+                    print(f"Error computing {n}-gram metrics for {set_name}: {e}")
+
+        # 2. Composition scores
+        if self.track_composition and model.cfg.n_layers >= 2:
+            try:
+                comp_scores = compute_composition_scores(model, 0, 1)
+                # Average across head pairs to reduce noise
+                if comp_scores:
+                    q_scores = [v for k, v in comp_scores.items() if k.startswith('q_comp')]
+                    k_scores = [v for k, v in comp_scores.items() if k.startswith('k_comp')]
+                    v_scores = [v for k, v in comp_scores.items() if k.startswith('v_comp')]
+
+                    if q_scores: metrics_to_log['avg_q_composition'] = np.mean(q_scores)
+                    if k_scores: metrics_to_log['avg_k_composition'] = np.mean(k_scores)  
+                    if v_scores: metrics_to_log['avg_v_composition'] = np.mean(v_scores)
+
+                    # Also log individual head pairs for detailed analysis
+                    for k, v in list(comp_scores.items())[:10]:  # Limit to avoid spam
+                        metrics_to_log[k] = v
+
+            except Exception as e:
+                print(f"Error computing composition scores: {e}")
+
+        # 3. Previous token matching scores
+        if self.track_previous_token:
+            try:
+                prev_scores = compute_previous_token_matching_score(model, num_samples=100)
+                # Average across all heads
+                if prev_scores:
+                    all_scores = list(prev_scores.values())
+                    metrics_to_log['avg_prev_token_matching'] = np.mean(all_scores)
+
+                    # Log per-layer averages
+                    for layer_idx in range(model.cfg.n_layers):
+                        layer_scores = [v for k, v in prev_scores.items() if f'_l{layer_idx}_' in k]
+                        if layer_scores:
+                            metrics_to_log[f'prev_token_l{layer_idx}'] = np.mean(layer_scores)
+
+            except Exception as e:
+                print(f"Error computing previous token scores: {e}")
+
+        # 4. In-context learning score
+        if self.track_in_context:
+            try:
+                icl_score = compute_in_context_learning_score(model, num_samples=25, k1=5,k2=15)
+                metrics_to_log['in_context_learning'] = icl_score
+            except Exception as e:
+                print(f"Error computing in-context learning score: {e}")
+
+        # 5. Prefix matching scores
+        if self.track_prefix_matching:
+            try:
+                prefix_scores = compute_prefix_matching_score(model, num_samples=100)
+                if prefix_scores:
+                    all_scores = list(prefix_scores.values())
+                    metrics_to_log['avg_prefix_matching'] = np.mean(all_scores)
+
+                    # Log per-layer averages
+                    for layer_idx in range(model.cfg.n_layers):
+                        layer_scores = [v for k, v in prefix_scores.items() if f'_l{layer_idx}_' in k]
+                        if layer_scores:
+                            metrics_to_log[f'prefix_match_l{layer_idx}'] = np.mean(layer_scores)
+
+            except Exception as e:
+                print(f"Error computing prefix matching scores: {e}")
+
+        # Log to wandb if available
+        if wandb.run is not None:
+            wandb.log(metrics_to_log, step=step)
+
+        # Store in internal metrics
+        self.metrics[step] = metrics_to_log
+
+        return metrics_to_log
+
+    def log_custom_metric(self, name: str, value: float, step: int):
+        """Log a custom metric."""
+        if wandb.run is not None:
+            wandb.log({name: value}, step=step)
+
+        if step not in self.metrics:
+            self.metrics[step] = {}
+        self.metrics[step][name] = value
+
+    def get_metrics_history(self) -> Dict:
+        """Get the full metrics history."""
+        return self.metrics
+
+
+# Keep the original MetricsTracker for backward compatibility
+class MetricsTracker(AdvancedMetricsTracker):
+    """Backward compatibility wrapper."""
+
+    def __init__(self, ngram_orders: List[int] = [1, 2, 3], track_sets: List[str] = ["train", "val", "complete"]):
+        super().__init__(
+            ngram_orders=ngram_orders, 
+            track_sets=track_sets,
+            track_composition=False,  # Disable advanced metrics by default
+            track_previous_token=False,
+            track_in_context=False,
+            track_prefix_matching=False
+        )
+
+    def compute_ngram_metrics(self, model, datasets: Dict[str, torch.Tensor], step: int):
+        """Original method for backward compatibility."""
+        return self.compute_all_metrics(model, datasets, step)
