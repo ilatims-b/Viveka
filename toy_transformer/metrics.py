@@ -1,9 +1,16 @@
 
+from operator import ge
 import numpy as np
 import torch
 from typing import Dict, List, Tuple, Optional
 import wandb
 from itertools import product
+from mealymarkov import MarkovMealyModel
+from transformer_lens import HookedTransformer
+from transformer_lens.hook_points import HookPoint
+from transformer_lens.utils import get_act_name
+
+
 
 def get_ngram_stats(x: torch.Tensor, n: int) -> Tuple[Dict[str, float], Dict[str, int], int]:
     """
@@ -47,7 +54,7 @@ def get_ngram_stats(x: torch.Tensor, n: int) -> Tuple[Dict[str, float], Dict[str
     return ngram_freqs, ngram_counts, total_ngrams
 
 
-def ngram_kl(model, n: int, T_matrices: Optional[List[np.ndarray]] = None) -> float:
+def ngram_kl(model, data:torch.Tensor, n: int, T_matrices: Optional[List[np.ndarray]] = None) -> float:
     """
     Compute KL divergence between true n-gram-based Markov process and model predictions.
     """
@@ -69,8 +76,11 @@ def ngram_kl(model, n: int, T_matrices: Optional[List[np.ndarray]] = None) -> fl
     from toy_model import MarkovData
 
     # Generate test data
-    test_data = MarkovData(50, 32, 3, 2, T_matrices, seed=42)
-    x = torch.stack(test_data.data)  # shape: (50, 32)
+    if data is None:
+        test_data = MarkovData(100, 32, 3, 2, T_matrices, seed=42)
+        x = torch.stack(test_data.data)  # shape: (50, 32)
+    else:
+        x=data
 
     batch_size, seq_len = x.shape
     dist1 = torch.zeros(batch_size, seq_len, 2)  # shape: (50, 32, 2)
@@ -78,12 +88,10 @@ def ngram_kl(model, n: int, T_matrices: Optional[List[np.ndarray]] = None) -> fl
     if n == 1:  
         dist1[..., 0] = 0.5  # P(0)
         dist1[..., 1] = 0.5  # P(1)
-        start_pos = 0
 
     elif n == 2: 
         dist1[..., 0] = torch.where(x == 1, 1, 0.5)  # P(0)
         dist1[..., 1] = torch.where(x == 1, 0, 0.5)   # P(1)
-        start_pos = 0
 
     elif n==3:  
         for i in range(batch_size):
@@ -128,7 +136,74 @@ def ngram_kl(model, n: int, T_matrices: Optional[List[np.ndarray]] = None) -> fl
         kl_sum = kl_div.sum(dim=-1)  # sum over distribution axis
         return kl_sum.mean().item()  # scalar
 
-    return kl_div(dist1_clamped, dist2_clamped)
+    return kl_div(dist1_clamped, dist2_clamped), kl_div(dist2_clamped, dist1_clamped)
+
+def markov_kl_proc(model, markov_data=None, process_id: int = 0) -> Tuple[float, float]:
+    """
+    Compute KL divergence between actual Markov process states and model predictions.
+    This uses the true Markov state probabilities computed from the process itself.
+
+    Args:
+        model: The transformer model
+        markov_data: MarkovData object. If None, creates default process.
+        process_id: ID for labeling different processes in WandB
+
+    Returns:
+        Tuple of (markov_to_model_kl, model_to_markov_kl)
+    """
+    # Create default Markov process if none provided
+    if markov_data is None:
+        from toy_model import MarkovData
+        T0 = np.array([
+            [0, 1, 0],
+            [0, 0, 1],
+            [0, 0, 0.5]
+        ])
+        T1 = np.array([
+            [0, 0, 0],
+            [0, 0, 0],
+            [0.5, 0, 0]
+        ])
+
+        markov_data = MarkovData(n_gen=50, gen_len=30, n_states=3, d_vocab=2, T_list=[T0, T1], seed=42 + process_id)
+
+    # Get sequences and states
+    x = torch.stack(markov_data.data)  # shape: (n_gen, gen_len)
+
+    # Compute true probabilities from Markov states
+    dist1 = []
+    for etas in markov_data.states:
+        sequence_probs = []
+        for eta in etas[1:]:  # Skip first state, start from position 1
+            token_probs = markov_data.model.token_probabilities(eta)
+            sequence_probs.append(token_probs)
+        dist1.append(sequence_probs)
+
+    dist1 = torch.tensor(np.array(dist1), dtype=torch.float32)  # shape: (n_gen, gen_len-1, d_vocab)
+
+    # Get predicted probabilities from model (skip first token for prediction)
+    dist2 = model(x).softmax(dim=-1)[:, :-1, :]  # shape: (n_gen, gen_len-1, d_vocab)
+
+    # Ensure same shape
+    min_len = min(dist1.shape[1], dist2.shape[1])
+    dist1 = dist1[:, :min_len, :]
+    dist2 = dist2[:, :min_len, :]
+
+    # Avoid log(0) by clamping very small values
+    eps = 1e-8
+    dist1_clamped = dist1.clamp(min=eps)
+    dist2_clamped = dist2.clamp(min=eps)
+
+    # Compute KL divergence manually: sum_i P(i) * log(P(i)/Q(i))
+    def kl_divergence(p, q):
+        kl_div = p * (p.log() - q.log())
+        kl_sum = kl_div.sum(dim=-1)  # sum over vocabulary
+        return kl_sum.mean().item()  # scalar
+
+    markov_to_model = kl_divergence(dist1_clamped, dist2_clamped)
+    model_to_markov = kl_divergence(dist2_clamped, dist1_clamped)
+
+    return markov_to_model, model_to_markov
 
 
 def compute_composition_scores(model, layer1_idx: int = 0, layer2_idx: int = 1) -> Dict[str, float]:
@@ -193,35 +268,50 @@ def compute_composition_scores(model, layer1_idx: int = 0, layer2_idx: int = 1) 
     return composition_scores
 
 
-def compute_previous_token_matching_score(model, num_samples: int = 1000, max_seq_len: int = 64) -> Dict[str, float]:
+def compute_previous_token_matching_score(model, data: torch.Tensor) -> Dict[str, float]:
     """
     Compute previous-token matching scores for all attention heads.
     Measures how much each attention head attends to the immediately preceding token.
     """
     device = next(model.parameters()).device
-    vocab_size = model.cfg.d_vocab
     scores = {}
-    max_seq_len = min(max_seq_len, model.cfg.n_ctx)
-    # Generate synthetic random sequences
-    sequences = torch.randint(0, vocab_size, (num_samples, max_seq_len), device=device)
+    sequences = []
+    if data is None:
+        data = torch.randint(0, model.cfg.d_vocab, (100, 32))
+    
+    sequences = data[:100].to(device)  # [num_samples, seq_len]
+    seq_len = sequences.shape[1]
+
 
     with torch.no_grad():
         # Run model and get attention patterns
-        _, cache = model.run_with_cache(sequences)
+        hook_names = []
+        for layer_idx in range(model.cfg.n_layers):
+            # Use get_act_name for proper hook naming
+            hook_names.append(get_act_name("pattern", layer_idx))
+
+        # Run model with specific hooks cached
+        logits, cache = model.run_with_cache(sequences, names_filter=hook_names)
+
 
         for layer_idx in range(model.cfg.n_layers):
-            # Get attention patterns: [batch, head, seq_len, seq_len]
-            cache_key = f'blocks.{layer_idx}.attn.pattern'
-            if cache_key not in cache:
-                print(f"Cache key {cache_key} not found. Available keys: {list(cache.keys())[:5]}")
-                continue
-            attn_patterns = cache[cache_key]    
+            pattern_hook_name = get_act_name("pattern", layer_idx)
+
+            if pattern_hook_name in cache:
+                attn_patterns = cache[pattern_hook_name]  # [batch, head, seq_len, seq_len]
+
+                # Validate shape
+                if len(attn_patterns.shape) != 4:
+                    print(f"Warning: Unexpected attention pattern shape for layer {layer_idx}: {attn_patterns.shape}")
+                    continue
+
+                batch_size, n_heads, attn_seq_len, _ = attn_patterns.shape
             for head_idx in range(model.cfg.n_heads):
                 # Get attention from each token to the previous token
                 # attn_patterns[:, head_idx, i, i-1] gives attention from token i to token i-1
                 prev_token_scores = []
 
-                for seq_pos in range(1, max_seq_len):  # Start from position 1
+                for seq_pos in range(1, seq_len):  # Start from position 1
                     # Attention from position seq_pos to position seq_pos-1
                     attention_to_prev = attn_patterns[:, head_idx, seq_pos, seq_pos-1]
                     prev_token_scores.extend(attention_to_prev.cpu().numpy())
@@ -233,22 +323,30 @@ def compute_previous_token_matching_score(model, num_samples: int = 1000, max_se
     return scores
 
 
-def compute_in_context_learning_score(model, num_samples: int = 100, k1: int = 50, k2: int = 500) -> float:
+def compute_in_context_learning_score(model, data:Optional[torch.Tensor], k1: int = 5, k2: int = 32) -> float:
     """
     Compute in-context learning score: ICL_{k1,k2}(w) = ℓ_{n,k1}(w) - ℓ_{n,k2}(w)
     Measures relative performance later in sequence vs earlier.
     """
     device = next(model.parameters()).device
-    vocab_size = model.cfg.d_vocab
-    max_seq_len = model.cfg.n_ctx
-    k1 = min(k1, max_seq_len - 2)
-    k2 = min(k2, max_seq_len - 2)
-    if k1 >= k2:
-        print(f"Warning: k1 ({k1}) >= k2 ({k2}), swapping values")
-        k1, k2 = k2, k1
-    seq_len = k2 + 1
 
-    sequences = torch.randint(0, vocab_size, (num_samples, seq_len), device=device)
+    if data is None:
+        #max_len=min(model.cfg.n_ctx, 1024)
+        #data = torch.randint(0, model.cfg.d_vocab, (100, max_len), device=device)
+        max_len = min(model.cfg.n_ctx, 32)
+        T0 = np.array([[0, 1, 0], [0, 0, 1], [0, 0, 0.5]])
+        T1 = np.array([[0, 0, 0], [0, 0, 0], [0.5, 0, 0]])
+        from toy_model import MarkovData
+        markov_data = MarkovData(n_gen=100, gen_len=max_len, n_states=3, d_vocab=2, T_list=[T0, T1], seed=43)
+        data = torch.stack(markov_data.data)
+    num_samples=min(100, data.shape[0])
+    sequences=data[:num_samples].to(device) 
+
+    seq_len=sequences.shape[1]
+    k1 = min(k1, seq_len - 2)  # Ensure k1 is within bounds
+    k2 = min(k2, seq_len - 2)  # Ensure k2 is within bounds
+    if k1 >= k2:
+        raise ValueError("k1 must be less than k2")
 
     with torch.no_grad():
         logits = model(sequences)
@@ -280,48 +378,49 @@ def compute_in_context_learning_score(model, num_samples: int = 100, k1: int = 5
 
     return icl_score
 
+def generate_prefix_matching_data(n_samples: int = 100, seq_len: int = 64, 
+                                vocab_size: int = 2, seed: int = 42) -> torch.Tensor:
+    """Generate data with repeated tokens for prefix matching analysis."""
+    torch.manual_seed(seed)
+    sequences = []
 
-def compute_prefix_matching_score(model, num_samples: int = 1000, seq_len: int = 128) -> Dict[str, float]:
+    for _ in range(n_samples):
+        seq = torch.randint(0, vocab_size, (seq_len,))
+
+        # Insert repeated tokens: place token A in first half, then again in second half
+        if seq_len >= 4:
+            token_A = torch.randint(0, vocab_size, (1,)).item()
+            first_half_end = max(2, seq_len // 3)
+            second_half_start = max(first_half_end + 5, 2 * seq_len // 3)
+
+            if first_half_end < second_half_start < seq_len:
+                first_pos = torch.randint(1, first_half_end, (1,)).item()
+                second_pos = torch.randint(second_half_start, seq_len, (1,)).item()
+
+                seq[first_pos] = token_A
+                seq[second_pos] = token_A
+
+        sequences.append(seq)
+
+    return torch.stack(sequences)
+
+
+def compute_prefix_matching_score(model, data:Optional[torch.Tensor]=None) -> Dict[str, float]:
     """
     Compute prefix matching scores for all attention heads.
     Measures how much attention heads attend back to first instance of token 
     when encountering second instance.
     """
     device = next(model.parameters()).device
-    vocab_size = model.cfg.d_vocab
     scores = {}
-    seq_len = min(seq_len, model.cfg.n_ctx)
     # Generate sequences with repeated tokens
     sequences = []
-    for _ in range(num_samples):
-        if vocab_size < 3:  # Need at least 3 tokens (0, 1, 2)
-            print(f"Vocab size too small ({vocab_size}) for prefix matching")
-            return {}
+    if data is None:
+        vocab_size = model.cfg.d_vocab
+        data = generate_prefix_matching_data(n_samples=100, seq_len=64, vocab_size=vocab_size)
 
-        seq = torch.randint(1, vocab_size, (seq_len,), device=device)
-
-            # Insert a repeated token: place token A in first half, then again in second half
-        if seq_len < 4:  # Need minimum length for meaningful prefix matching
-            continue
-
-        token_A = torch.randint(1, vocab_size, (1,), device=device).item()
-        first_half_end = max(2, seq_len // 2)
-        second_half_start = max(first_half_end + 1, seq_len // 2 + 1)
-
-        if first_half_end >= second_half_start or second_half_start >= seq_len:
-            continue  # Skip invalid sequences
-
-        first_pos = torch.randint(1, first_half_end, (1,)).item()
-        second_pos = torch.randint(second_half_start, seq_len, (1,)).item()
-
-        seq[first_pos] = token_A
-        seq[second_pos] = token_A
-        sequences.append(seq)
-    if not sequences:
-        print("No valid sequences generated for prefix matching")
-        return {}
-
-    sequences = torch.stack(sequences)  # [num_samples, seq_len]
+    sequences=data.to(device)
+    num_samples, seq_len=sequences.shape
 
     with torch.no_grad():
         _, cache = model.run_with_cache(sequences)
@@ -358,93 +457,113 @@ def compute_prefix_matching_score(model, num_samples: int = 1000, seq_len: int =
 
     return scores
 
-
-class AdvancedMetricsTracker:
-    """
-    Extended metrics tracker including advanced transformer evaluation metrics.
-    """
-
+class MetricsConfig:
+    """Configuration for metrics tracking."""
     def __init__(
-        self, 
-        ngram_orders: List[int] = [1, 2, 3], 
-        track_sets: List[str] = ["train", "val", "complete"],
+        self,
+        # N-gram metrics
+        track_ngrams: bool = True,
+        ngram_orders: List[int] = [1, 2, 3],
+        ngram_data: Optional[torch.Tensor] = None,
+
+        # Markov KL metrics
+        track_markov_kl: bool = True,
+        markov_processes: List = None,  # List of MarkovData objects or None for defaults
+
+        # Composition metrics
         track_composition: bool = True,
-        track_previous_token: bool = True, 
+        composition_layers: List[Tuple[int, int]] = [(0, 1)],
+
+        # Previous token matching
+        track_previous_token: bool = True,
+        prev_token_data: Optional[torch.Tensor] = None,
+
+        # In-context learning
         track_in_context: bool = True,
-        track_prefix_matching: bool = True
+        icl_data: Optional[torch.Tensor] = None,
+        icl_k1: int = 10,
+        icl_k2: int = 50,
+
+        # Prefix matching
+        track_prefix_matching: bool = False,
+        prefix_data: Optional[torch.Tensor] = None,
     ):
+        self.track_ngrams = track_ngrams
         self.ngram_orders = ngram_orders
-        self.track_sets = track_sets
+        self.ngram_data = ngram_data
+
+        self.track_markov_kl = track_markov_kl
+        self.markov_processes = markov_processes or []
+
         self.track_composition = track_composition
+        self.composition_layers = composition_layers
+
         self.track_previous_token = track_previous_token
+        self.prev_token_data = prev_token_data
+
         self.track_in_context = track_in_context
+        self.icl_data = icl_data
+        self.icl_k1 = icl_k1
+        self.icl_k2 = icl_k2
+
         self.track_prefix_matching = track_prefix_matching
-        self.metrics = {}
+        self.prefix_data = prefix_data
 
-    def compute_all_metrics(self, model, datasets: Dict[str, torch.Tensor], step: int):
-        """
-        Compute all enabled metrics for the model.
-        """
-        metrics_to_log = {}
 
-        # 1. N-gram metrics
-        for set_name in self.track_sets:
-            if set_name not in datasets:
-                continue
+def compute_metrics(model, config: MetricsConfig, step: int) -> Dict[str, float]:
+    """
+    Compute individual metrics based on configuration.
+    Each metric uses its own optimal data if not provided.
+    """
+    metrics_to_log = {}
 
-            data = datasets[set_name]
-
-            for n in self.ngram_orders:
+    try:
+        # 1. N-gram KL divergence metrics
+        if config.track_ngrams:
+            for n in config.ngram_orders:
                 try:
-                    # Compute n-gram statistics
-                    #freqs, counts, total = get_ngram_stats(data, n)
-
-                    # Compute KL divergence
-                    kl_score = ngram_kl(model, n)
-
-                    # Store metrics
-                    metrics_to_log[f"{n}gram_kl_{set_name}"] = kl_score
-                    #metrics_to_log[f"{n}gram_total_{set_name}"] = total
-
-                    # Store top n-gram frequencies
-                    #sorted_freqs = sorted(freqs.items(), key=lambda x: x[1], reverse=True)
-                    #for i, (pattern, freq) in enumerate(sorted_freqs[:3]):  # Top 3
-                     #   metrics_to_log[f"{n}gram_freq_{pattern}_{set_name}"] = freq
-
+                    kl_score = ngram_kl(model, config.ngram_data, n)
+                    metrics_to_log[f'{n}gram_kl'] = kl_score
                 except Exception as e:
-                    print(f"Error computing {n}-gram metrics for {set_name}: {e}")
+                    print(f"Error computing {n}-gram KL: {e}")
 
-        # 2. Composition scores
-        if self.track_composition and model.cfg.n_layers >= 2:
+        # 2. Composition scores  
+        if config.track_composition:
             try:
-                comp_scores = compute_composition_scores(model, 0, 1)
-                # Average across head pairs to reduce noise
-                if comp_scores:
-                    q_scores = [v for k, v in comp_scores.items() if k.startswith('q_comp')]
-                    k_scores = [v for k, v in comp_scores.items() if k.startswith('k_comp')]
-                    v_scores = [v for k, v in comp_scores.items() if k.startswith('v_comp')]
+                for layer1_idx, layer2_idx in config.composition_layers:
+                    comp_scores = compute_composition_scores(model, layer1_idx, layer2_idx)
 
-                    if q_scores: metrics_to_log['avg_q_composition'] = np.mean(q_scores)
-                    if k_scores: metrics_to_log['avg_k_composition'] = np.mean(k_scores)  
-                    if v_scores: metrics_to_log['avg_v_composition'] = np.mean(v_scores)
-
-                    # Also log individual head pairs for detailed analysis
-                    for k, v in list(comp_scores.items())[:10]:  # Limit to avoid spam
+                    # Log individual composition scores for visualization
+                    for k, v in comp_scores.items():
                         metrics_to_log[k] = v
+
+                    # Also log averages
+                    if comp_scores:
+                        q_scores = [v for k, v in comp_scores.items() if k.startswith('q_comp')]
+                        k_scores = [v for k, v in comp_scores.items() if k.startswith('k_comp')]
+                        v_scores = [v for k, v in comp_scores.items() if k.startswith('v_comp')]
+
+                        if q_scores: metrics_to_log[f'avg_q_composition_l{layer1_idx}_l{layer2_idx}'] = np.mean(q_scores)
+                        if k_scores: metrics_to_log[f'avg_k_composition_l{layer1_idx}_l{layer2_idx}'] = np.mean(k_scores)
+                        if v_scores: metrics_to_log[f'avg_v_composition_l{layer1_idx}_l{layer2_idx}'] = np.mean(v_scores)
 
             except Exception as e:
                 print(f"Error computing composition scores: {e}")
 
         # 3. Previous token matching scores
-        if self.track_previous_token:
+        if config.track_previous_token:
             try:
-                prev_scores = compute_previous_token_matching_score(model, num_samples=100)
-                # Average across all heads
+                prev_scores = compute_previous_token_matching_score(model, config.prev_token_data)
+
+                # Log individual head scores
+                for k, v in prev_scores.items():
+                    metrics_to_log[k] = v
+
+                # Log averages per layer and overall
                 if prev_scores:
                     all_scores = list(prev_scores.values())
                     metrics_to_log['avg_prev_token_matching'] = np.mean(all_scores)
 
-                    # Log per-layer averages
                     for layer_idx in range(model.cfg.n_layers):
                         layer_scores = [v for k, v in prev_scores.items() if f'_l{layer_idx}_' in k]
                         if layer_scores:
@@ -454,22 +573,29 @@ class AdvancedMetricsTracker:
                 print(f"Error computing previous token scores: {e}")
 
         # 4. In-context learning score
-        if self.track_in_context:
+        if config.track_in_context:
             try:
-                icl_score = compute_in_context_learning_score(model, num_samples=25, k1=5,k2=15)
+                icl_score = compute_in_context_learning_score(
+                    model, config.icl_data, config.icl_k1, config.icl_k2
+                )
                 metrics_to_log['in_context_learning'] = icl_score
             except Exception as e:
                 print(f"Error computing in-context learning score: {e}")
 
         # 5. Prefix matching scores
-        if self.track_prefix_matching:
+        if config.track_prefix_matching:
             try:
-                prefix_scores = compute_prefix_matching_score(model, num_samples=100)
+                prefix_scores = compute_prefix_matching_score(model, config.prefix_data)
+
+                # Log individual scores
+                for k, v in prefix_scores.items():
+                    metrics_to_log[k] = v
+
+                # Log averages
                 if prefix_scores:
                     all_scores = list(prefix_scores.values())
                     metrics_to_log['avg_prefix_matching'] = np.mean(all_scores)
 
-                    # Log per-layer averages
                     for layer_idx in range(model.cfg.n_layers):
                         layer_scores = [v for k, v in prefix_scores.items() if f'_l{layer_idx}_' in k]
                         if layer_scores:
@@ -482,39 +608,40 @@ class AdvancedMetricsTracker:
         if wandb.run is not None:
             wandb.log(metrics_to_log, step=step)
 
-        # Store in internal metrics
-        self.metrics[step] = metrics_to_log
+    except Exception as e:
+        print(f"Error in metrics computation at step {step}: {e}")
 
-        return metrics_to_log
+    return metrics_to_log
 
-    def log_custom_metric(self, name: str, value: float, step: int):
-        """Log a custom metric."""
-        if wandb.run is not None:
-            wandb.log({name: value}, step=step)
+class CleanMetricsTracker:
+ #backward compatibility wrapper
+    def __init__(self, ngram_orders=[1, 2, 3], track_composition=True, 
+                 track_previous_token=True, track_in_context=True, 
+                 track_prefix_matching=False):
+        self.config = MetricsConfig(
+            track_ngrams=True,
+            ngram_orders=ngram_orders,
+            track_composition=track_composition,
+            track_previous_token=track_previous_token,
+            track_in_context=track_in_context,
+            track_prefix_matching=track_prefix_matching
+        )
+        self.metrics = {}
 
-        if step not in self.metrics:
-            self.metrics[step] = {}
-        self.metrics[step][name] = value
+    def compute_all_metrics(self, model, data: torch.Tensor, step: int):
+        """Backward compatibility method."""
+        # Use the provided data for all metrics (old behavior)
+        self.config.ngram_data = data
+        self.config.prev_token_data = data
+        self.config.icl_data = data
+        self.config.prefix_data = data
 
-    def get_metrics_history(self) -> Dict:
-        """Get the full metrics history."""
+        metrics = compute_metrics(model, self.config, step)
+        self.metrics[step] = metrics
+        return metrics
+
+    def get_metrics_history(self):
         return self.metrics
 
-
-# Keep the original MetricsTracker for backward compatibility
-class MetricsTracker(AdvancedMetricsTracker):
-    """Backward compatibility wrapper."""
-
-    def __init__(self, ngram_orders: List[int] = [1, 2, 3], track_sets: List[str] = ["train", "val", "complete"]):
-        super().__init__(
-            ngram_orders=ngram_orders, 
-            track_sets=track_sets,
-            track_composition=False,  # Disable advanced metrics by default
-            track_previous_token=False,
-            track_in_context=False,
-            track_prefix_matching=False
-        )
-
-    def compute_ngram_metrics(self, model, datasets: Dict[str, torch.Tensor], step: int):
-        """Original method for backward compatibility."""
-        return self.compute_all_metrics(model, datasets, step)
+   
+ 

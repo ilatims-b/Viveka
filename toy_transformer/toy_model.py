@@ -12,9 +12,8 @@ from typing import Optional, Literal
 
 from transformer_lens import HookedTransformer, HookedTransformerConfig
 from transformer_lens.train import HookedTransformerTrainConfig
+from metrics import MetricsConfig, generate_prefix_matching_data, compute_metrics
 from mealymarkov import MarkovMealyModel
-from metrics import AdvancedMetricsTracker, get_ngram_stats, ngram_kl
-
 
 class MarkovData(Dataset):
 
@@ -110,7 +109,7 @@ def train(
     train_data: Dataset,
     val_data: Optional[Dataset] = None,
     eval_every: Optional[int] = None,
-    metrics_tracker: Optional[AdvancedMetricsTracker] = None,
+    metrics_config: Optional[MetricsConfig] = None,
     metrics_log_interval: int = 50
 ) -> HookedTransformer:
     """
@@ -170,28 +169,6 @@ def train(
     model = model.to(config.device)
 
     global_step = 0
-    datasets_dict = {}
-    if metrics_tracker is not None:
-        try:
-            # Prepare datasets once at the beginning
-            sample_size = min(50, len(train_data))
-            train_sample = torch.stack([train_data[i]["tokens"] for i in range(sample_size)])
-            datasets_dict["train"] = train_sample
-
-            if val_data is not None:
-                val_sample_size = min(25, len(val_data))
-                val_sample = torch.stack([val_data[i]["tokens"] for i in range(val_sample_size)])
-                datasets_dict["val"] = val_sample
-                complete_sample = torch.cat([train_sample, val_sample], dim=0)
-            else:
-                complete_sample = train_sample
-            datasets_dict["complete"] = complete_sample
-
-            print(f"📊 Metrics tracking enabled: logging every {metrics_log_interval} steps")
-
-        except Exception as e:
-            print(f"Warning: Error preparing datasets for metrics: {e}")
-            metrics_tracker = None
 
     for epoch in tqdm(range(1, config.num_epochs + 1)):
         samples = 0
@@ -216,21 +193,18 @@ def train(
             if config.wandb:
                 wandb.log({"train_loss": loss.item(), "samples": samples, "epoch": epoch}, step=global_step)
 
-            # FIXED: Track metrics at regular intervals throughout training
-            if metrics_tracker is not None and global_step % metrics_log_interval == 0:
+            if metrics_config is not None and global_step % metrics_log_interval == 0:
                 try:
-                    # Compute and log ALL metrics with error handling
                     model.eval()
                     with torch.no_grad():
-                        metrics_tracker.compute_all_metrics(model, datasets_dict, global_step)
+                        compute_metrics(model, metrics_config, global_step)
                     model.train()
-
-                    if global_step % (metrics_log_interval * 4) == 0:  # Print progress every 4th metrics log
-                        print(f"📊 Metrics logged at step {global_step}")
-
+                    
+                    if global_step % (metrics_log_interval * 4) == 0:
+                        print(f"Metrics logged at step {global_step}")
                 except Exception as e:
                     print(f"Warning: Error in metrics tracking at step {global_step}: {e}")
-                    # Continue training even if metrics fail
+            
 
         if config.print_every is not None and epoch % config.print_every == 0:
             print(f"Epoch {epoch} Samples {samples} Step {step} Training Loss {loss.item()}")
@@ -278,13 +252,15 @@ def train_model(
     print_every: int = 1,
     eval_every: int = 1,
     val_frac: float = 0.2,
-    # Advanced Metrics tracking
+    # Metrics tracking
+    metrics_config: Optional[MetricsConfig] = None,
+    metrics_log_interval: int = 50,
+
     track_ngrams: bool = True,
     ngram_orders: list[int] = [1,2, 3],
-    track_sets: list[str] = ["train", "val", "complete"],
-    track_composition: bool = True,
     track_previous_token: bool = True,
     track_in_context: bool = True,
+    track_composition: bool = True,
     track_prefix_matching: bool = True
 ) -> HookedTransformer:
     """
@@ -407,16 +383,17 @@ def train_model(
     )
 
     # Initialize ADVANCED metrics tracker if any metrics tracking is requested
-    metrics_tracker = None
-    if track_ngrams or track_composition or track_previous_token or track_in_context or track_prefix_matching:
-        metrics_tracker = AdvancedMetricsTracker(
+    if metrics_config is None and any([track_ngrams, track_composition, track_previous_token, 
+                                     track_in_context, track_prefix_matching]):
+        metrics_config = MetricsConfig(
+            track_ngrams=track_ngrams,
             ngram_orders=ngram_orders,
-            track_sets=track_sets,
             track_composition=track_composition,
             track_previous_token=track_previous_token,
             track_in_context=track_in_context,
-            track_prefix_matching=track_prefix_matching
+            track_prefix_matching=track_prefix_matching,
         )
+        print("Created metrics config from individual parameters")
 
     # Train-val split
     if val_frac:
@@ -426,9 +403,9 @@ def train_model(
         val_indices = indices[train_size:]
         train_data = Subset(dataset, train_indices)
         val_data = Subset(dataset, val_indices)
-        return train(model, train_cfg, train_data, val_data, eval_every, metrics_tracker)
+        return train(model, train_cfg, train_data, val_data, eval_every, metrics_config)
     else:
-        return train(model, train_cfg, dataset, metrics_tracker=metrics_tracker)
+        return train(model, train_cfg, dataset, metrics_config=metrics_config)
 
 
 def finetune_model(
@@ -527,19 +504,6 @@ def finetune_model(
         save_dir=save_dir,
         print_every=print_every
     )
-
-    # Initialize ADVANCED metrics tracker if any metrics tracking is requested
-    metrics_tracker = None
-    if track_ngrams or track_composition or track_previous_token or track_in_context or track_prefix_matching:
-        metrics_tracker = AdvancedMetricsTracker(
-            ngram_orders=ngram_orders,
-            track_sets=track_sets,
-            track_composition=track_composition,
-            track_previous_token=track_previous_token,
-            track_in_context=track_in_context,
-            track_prefix_matching=track_prefix_matching
-        )
-
     # Train-val split
     if val_frac:
         train_size = int(len(dataset) * (1 - val_frac))
