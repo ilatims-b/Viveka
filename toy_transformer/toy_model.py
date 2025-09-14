@@ -200,7 +200,7 @@ def train(
                         compute_metrics(model, metrics_config, global_step)
                     model.train()
                     
-                    if global_step % (metrics_log_interval * 4) == 0:
+                    if global_step % (metrics_log_interval) == 0:
                         print(f"Metrics logged at step {global_step}")
                 except Exception as e:
                     print(f"Warning: Error in metrics tracking at step {global_step}: {e}")

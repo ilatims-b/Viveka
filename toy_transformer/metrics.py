@@ -522,8 +522,9 @@ def compute_metrics(model, config: MetricsConfig, step: int) -> Dict[str, float]
         if config.track_ngrams:
             for n in config.ngram_orders:
                 try:
-                    kl_score = ngram_kl(model, config.ngram_data, n)
-                    metrics_to_log[f'{n}gram_kl'] = kl_score
+                    kl_true_to_model, kl_model_to_true = ngram_kl(model, config.ngram_data, n)
+                    metrics_to_log[f'{n}gram_kl_true_to_model'] = kl_true_to_model
+                    metrics_to_log[f'{n}gram_kl_model_to_true'] = kl_model_to_true 
                 except Exception as e:
                     print(f"Error computing {n}-gram KL: {e}")
 
@@ -603,6 +604,15 @@ def compute_metrics(model, config: MetricsConfig, step: int) -> Dict[str, float]
 
             except Exception as e:
                 print(f"Error computing prefix matching scores: {e}")
+
+        if config.track_markov_kl:
+            try:
+                for pid, markov_data in enumerate(config.markov_processes):
+                    markov_to_model, model_to_markov = markov_kl_proc(model, markov_data, process_id=pid)
+                    metrics_to_log[f'markov{pid}_to_model_kl'] = markov_to_model
+                    metrics_to_log[f'model_to_markov{pid}_kl'] = model_to_markov
+            except Exception as e:
+                print(f"Error computing Markov KL metrics: {e}")        
 
         # Log to wandb if available
         if wandb.run is not None:
