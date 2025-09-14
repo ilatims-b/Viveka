@@ -77,7 +77,7 @@ def ngram_kl(model, data:torch.Tensor, n: int, T_matrices: Optional[List[np.ndar
 
     # Generate test data
     if data is None:
-        test_data = MarkovData(100, 32, 3, 2, T_matrices, seed=42)
+        test_data = MarkovData(100, 32, 3, 2, T_matrices, seed=43)
         x = torch.stack(test_data.data)  # shape: (50, 32)
     else:
         x=data
@@ -165,7 +165,7 @@ def markov_kl_proc(model, markov_data=None, process_id: int = 0) -> Tuple[float,
             [0.5, 0, 0]
         ])
 
-        markov_data = MarkovData(n_gen=50, gen_len=30, n_states=3, d_vocab=2, T_list=[T0, T1], seed=42 + process_id)
+        markov_data = MarkovData(n_gen=50, gen_len=30, n_states=3, d_vocab=2, T_list=[T0, T1], seed=43)
 
     # Get sequences and states
     x = torch.stack(markov_data.data)  # shape: (n_gen, gen_len)
