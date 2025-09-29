@@ -89,6 +89,10 @@ class MergeMarkovDatasets(Dataset):
         assert dataset1.gen_len == dataset2.gen_len, "Generation lengths for the datasets do not match"
         self.gen_len = dataset1.gen_len
 
+        if dataset1.device != dataset2.device:
+            dataset2.to(dataset1.device)
+        self.device = dataset1.device
+
         data1 = list(zip(dataset1.data, dataset1.states))
         data2 = list(zip(dataset2.data, dataset2.states))
 
