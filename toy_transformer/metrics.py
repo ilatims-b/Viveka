@@ -206,7 +206,7 @@ def markov_kl_proc(model, markov_data=None,pos_start=0, process_id: int = 0,devi
             sequence_probs.append(token_probs)
         dist1.append(sequence_probs)
 
-    dist1 = torch.tensor(np.array(dist1), dtype=torch.float32)  
+    dist1 = torch.tensor(np.array(dist1), dtype=torch.float32,device=device)  
 
     # Get predicted probabilities from model
     dist2 = model(x).softmax(dim=-1)[:,pos_start-1:-1, :]  
@@ -568,7 +568,7 @@ def compute_metrics(model, config: MetricsConfig, step: int) -> Dict[str, float]
     Each metric uses its own optimal data if not provided.
     """
     metrics_to_log = {}
-    device=getattr(config,'device',next(model.parameters()).device)
+    device = getattr(config,'device',next(model.parameters()).device)
     
         # 1. N-gram KL divergence metrics
     if config.track_ngrams:
