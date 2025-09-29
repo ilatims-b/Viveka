@@ -43,7 +43,7 @@ class MarkovData(Dataset):
                 seed=rng.integers(2**32)
             )
 
-            self.data.append(torch.tensor(tokens, dtype=torch.int64),device=device)
+            self.data.append(torch.tensor(tokens, dtype=torch.int64,device=device))
             self.states.append(states,device=device)
 
     def __len__(self):
