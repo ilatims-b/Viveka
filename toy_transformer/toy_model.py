@@ -44,7 +44,7 @@ class MarkovData(Dataset):
             )
 
             self.data.append(torch.tensor(tokens, dtype=torch.int64,device=device))
-            self.states.append(states,device=device)
+            self.states.append(states)
 
     def __len__(self):
         return len(self.data)
