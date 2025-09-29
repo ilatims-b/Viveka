@@ -627,13 +627,11 @@ def compute_metrics(model, config: MetricsConfig, step: int) -> Dict[str, float]
 
         # 4. In-context learning score
     if config.track_in_context:
-        try:
-            icl_score = compute_in_context_learning_score(
-                model, config.icl_data, config.icl_k1, config.icl_k2,device
-            )
-            metrics_to_log['in_context_learning'] = icl_score
-        except Exception as e:
-            print(f"Error computing in-context learning score: {e}")
+        icl_score = compute_in_context_learning_score(
+            model, config.icl_data, config.icl_k1, config.icl_k2,device
+        )
+        metrics_to_log['in_context_learning'] = icl_score
+
 
         # 5. Prefix matching scores
     if config.track_prefix_matching:
