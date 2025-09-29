@@ -119,7 +119,6 @@ class MergeMarkovDatasets(Dataset):
     def to(self,device):
         if device!=self.device:
             self.data = [tensor.to(device) for tensor in self.data]
-            self.states = [states.to(device) for states in self.states]
             self.device=device
         return self
 
